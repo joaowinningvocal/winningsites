@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ranch",
+    "name": "Winning Ranch",
+    "live": "https://www.winningranch.com",
+    "pages": [
+      { "path": "/", "title": "Home" },
+      { "path": "/book.html", "title": "Book a stall" },
+      { "path": "/waivers.html", "title": "Waivers" },
+      { "path": "/contact.html", "title": "Contact" }
+    ]
+  },
+  {
+    "id": "realty",
+    "name": "Winning Realty",
+    "live": "https://winningrealty.com",
+    "pages": [
+      { "path": "/", "title": "Home" }
+    ]
+  }
+]
