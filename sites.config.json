@@ -4,10 +4,34 @@
     "name": "Winning Ranch",
     "live": "https://www.winningranch.com",
     "pages": [
-      { "path": "/", "title": "Home" },
-      { "path": "/book.html", "title": "Book a stall" },
-      { "path": "/waivers.html", "title": "Waivers" },
-      { "path": "/contact.html", "title": "Contact" }
+      {
+        "path": "/",
+        "title": "Home"
+      },
+      {
+        "path": "/stalls.html",
+        "title": "Stalls map"
+      },
+      {
+        "path": "/book.html",
+        "title": "Book a stall"
+      },
+      {
+        "path": "/waivers.html",
+        "title": "Waivers"
+      },
+      {
+        "path": "/contact.html",
+        "title": "Contact"
+      },
+      {
+        "path": "/portal/",
+        "title": "Owner portal"
+      },
+      {
+        "path": "/admin/",
+        "title": "Staff app"
+      }
     ]
   },
   {
@@ -15,7 +39,10 @@
     "name": "Winning Realty",
     "live": "https://winningrealty.com",
     "pages": [
-      { "path": "/", "title": "Home" }
+      {
+        "path": "/",
+        "title": "Home"
+      }
     ]
   }
 ]

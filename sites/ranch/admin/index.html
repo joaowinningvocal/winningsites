@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Staff | Winning Ranch</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E0E0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WR Staff">
+<link rel="icon" type="image/png" href="../img/favicon.png">
+<link rel="apple-touch-icon" href="../img/apple-touch-icon.png">
+<link rel="preload" href="../fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../css/site.css">
+<link rel="stylesheet" href="../css/app.css">
+</head>
+<body class="app">
+<header class="app-bar">
+  <div class="wrap app-bar__inner">
+    <a href="../" aria-label="Winning Ranch website"><img src="../img/logo-horizontal-light.png" alt="Winning Ranch" width="870" height="323"></a>
+    <span class="app-bar__title">Staff</span>
+    <span class="app-bar__spacer"></span>
+    <a class="bar-link" href="../portal/" id="portal-link" hidden>Owner view</a>
+    <button type="button" id="logout" hidden>Log out</button>
+  </div>
+</header>
+<nav class="tabs-nav" id="tabs" aria-label="Staff sections" hidden>
+  <div class="wrap">
+    <ul>
+      <li><a href="#/post">Post update</a></li>
+      <li><a href="#/bookings">Bookings <b id="pending-count"></b></a></li>
+      <li><a href="#/horses">Horses</a></li>
+      <li><a href="#/people">People</a></li>
+      <li><a href="#/stalls">Stalls &amp; prices</a></li>
+    </ul>
+  </div>
+</nav>
+<main class="app-main" id="app" aria-live="polite"></main>
+<script src="../js/app-common.js"></script>
+<script src="../js/admin.js"></script>
+</body>
+</html>

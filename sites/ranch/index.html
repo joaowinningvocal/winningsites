@@ -22,11 +22,12 @@
     <a class="brand" href="index.html" aria-label="Winning Ranch home"><img src="img/logo-horizontal.png" alt="Winning Ranch, our horses win" width="870" height="323"></a>
     <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Menu"><span></span><span></span><span></span></button>
     <nav class="nav" id="site-nav" aria-label="Main">
-      <a href="index.html#stay" aria-current="page">Boarding</a>
+      <a href="stalls.html">Stalls</a>
       <a href="waivers.html">Waivers</a>
       <a href="contact.html">Contact</a>
+      <a href="portal/">Owner login</a>
       <a class="phone" href="tel:+13054099656">(305) 409-9656</a>
-      <a class="btn btn--red" href="book.html">Book a stall</a>
+      <a class="btn btn--red" href="stalls.html">Book a stall</a>
     </nav>
   </div>
 </header>
@@ -38,7 +39,7 @@
     <h1 id="hero-title">Horse boarding in the heart of Las Vegas</h1>
     <p class="lede">Full-service monthly boarding for horses that live here, and roomy event stalls for horses in town to compete. Trailer and RV parking on site.</p>
     <div class="btn-row">
-      <a class="btn btn--red" href="book.html">Book an event stall</a>
+      <a class="btn btn--red" href="stalls.html">Pick a stall on the map</a>
       <a class="btn" href="contact.html?topic=monthly">Ask about monthly boarding</a>
     </div>
     <p class="hero__where">Find us at <a href="https://www.google.com/maps/dir/?api=1&destination=5360+W+Agate+Ave,+Las+Vegas,+NV" target="_blank" rel="noopener">5360 W Agate Ave</a>, or call Jenna at <a href="tel:+13054099656">(305) 409-9656</a>.</p>
@@ -74,9 +75,9 @@
         <ul>
           <li>Larger, more comfortable stalls</li>
           <li>Self care rates, full care add-on</li>
-          <li>Book online by the night</li>
+          <li>Pick your stall on the ranch map</li>
         </ul>
-        <a class="textlink" href="book.html">Check stall availability</a>
+        <a class="textlink" href="stalls.html">See open stalls</a>
       </article>
       <article class="service">
         <h3>Trailer &amp; RV parking</h3>
@@ -96,16 +97,16 @@
   <div class="wrap">
     <div class="section__head">
       <h2 id="booking-title">Booking an event stall</h2>
-      <p>Stalls are booked online, one horse per stall. Here&rsquo;s how it works.</p>
+      <p>One horse per stall. You pick the stalls, we hold them and confirm.</p>
     </div>
     <ol class="steps">
       <li>
-        <h3>Check availability</h3>
-        <p>The availability calendar shows open dates and the lowest stall prices.</p>
+        <h3>Pick dates and stalls</h3>
+        <p>The ranch map shows which stalls are open for your dates, with photos and prices.</p>
       </li>
       <li>
-        <h3>Book your stalls</h3>
-        <p>Add one stall per horse. Full care and trailer or RV parking can be added when you book.</p>
+        <h3>Send your request</h3>
+        <p>We hold your stalls and Jenna confirms by phone or email. Add full care or trailer and RV parking when you book.</p>
       </li>
       <li>
         <h3>Sign waivers, bring your Coggins</h3>
@@ -121,7 +122,7 @@
         </ul>
       </div>
       <div class="btn-row">
-        <a class="btn btn--red" href="book.html">Start booking</a>
+        <a class="btn btn--red" href="stalls.html">Open the stall map</a>
         <a class="btn btn--light" href="waivers.html">Sign waivers</a>
       </div>
     </div>
@@ -153,14 +154,20 @@
       <h2 id="facility-title">The facility</h2>
       <p>What you&rsquo;ll find when you pull in.</p>
     </div>
-    <dl class="facts">
-      <div><dt>Stalls</dt><dd><span class="tbd">number of stalls</span></dd></div>
-      <div><dt>Stall size</dt><dd><span class="tbd">stall size</span></dd></div>
-      <div><dt>Care</dt><dd>Self care or full care</dd></div>
-      <div><dt>Parking</dt><dd>Trailers and RVs</dd></div>
-      <div><dt>Hookups</dt><dd>Dry hookups</dd></div>
-      <div><dt>Riding areas</dt><dd><span class="tbd">arena / turnout</span></dd></div>
-    </dl>
+    <div class="facility">
+      <dl class="facts facts--two">
+        <div><dt>Stalls</dt><dd>20 in the main barn, 8 outdoor</dd></div>
+        <div><dt>Stall size</dt><dd><span class="tbd">stall size</span></dd></div>
+        <div><dt>Riding areas</dt><dd>2 arenas, 2 round pens</dd></div>
+        <div><dt>Care</dt><dd>Self care or full care</dd></div>
+        <div><dt>On site</dt><dd>Tack rooms, hay barn, restroom</dd></div>
+        <div><dt>Parking</dt><dd>Trailers and RVs, dry hookups</dd></div>
+      </dl>
+      <a class="map-teaser" href="stalls.html">
+        <img src="img/ranch-map-small.jpg" alt="Illustrated map of Winning Ranch: main barn, outdoor stalls, two arenas and two round pens" width="724" height="543" loading="lazy">
+        <span>Explore the ranch map</span>
+      </a>
+    </div>
     <div class="gallery">
       <figure class="photo" data-label="barn aisle"><img src="img/photos/aisle.jpg" alt="barn aisle" loading="lazy" onerror="this.remove()"></figure>
       <figure class="photo" data-label="inside a stall"><img src="img/photos/stall.jpg" alt="inside a stall" loading="lazy" onerror="this.remove()"></figure>
@@ -191,6 +198,14 @@
       <details>
         <summary>Is there room for my trailer or RV?</summary>
         <p>Yes, but spots are limited. Add parking when you book a stall, or call Jenna at (305) 409-9656 to book it on its own.</p>
+      </details>
+      <details>
+        <summary>Can I see the stall before I book?</summary>
+        <p>Yes. Every stall on the <a class="textlink" href="stalls.html">ranch map</a> has its photos, size and price. You&rsquo;re also welcome to call Jenna and come see it.</p>
+      </details>
+      <details>
+        <summary>Will I get updates on my horse?</summary>
+        <p>Yes. Owners with a horse at the ranch get a login to the <a class="textlink" href="portal/">owner portal</a>, where the team posts photos and videos of your horse.</p>
       </details>
       <details>
         <summary>How can I pay?</summary>
@@ -246,9 +261,11 @@
       <div>
         <h3>Boarding</h3>
         <ul>
-          <li><a href="book.html">Book an event stall</a></li>
+          <li><a href="stalls.html">Stall map</a></li>
+          <li><a href="book.html">How booking works</a></li>
           <li><a href="contact.html?topic=monthly">Monthly boarding</a></li>
           <li><a href="waivers.html">Sign waivers</a></li>
+          <li><a href="portal/">Owner login</a></li>
         </ul>
       </div>
     </div>
@@ -261,7 +278,7 @@
 
 <div class="quickbar">
   <a class="btn" href="tel:+13054099656">Call Jenna</a>
-  <a class="btn btn--red" href="book.html">Book a stall</a>
+  <a class="btn btn--red" href="stalls.html">Book a stall</a>
 </div>
 
 <script src="js/site.js" defer></script>

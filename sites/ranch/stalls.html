@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stall Map and Booking | Winning Ranch</title>
+<meta name="description" content="See every stall at Winning Ranch on the ranch map: photos, size, price and availability for your dates. Pick your stalls and send a booking request.">
+<meta property="og:title" content="Stall Map and Booking | Winning Ranch">
+<meta property="og:description" content="See every stall at Winning Ranch on the ranch map: photos, size, price and availability for your dates. Pick your stalls and send a booking request.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="img/og-image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preload" href="fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="css/stalls.css">
+<link rel="preload" href="img/ranch-map.jpg" as="image">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Winning Ranch home"><img src="img/logo-horizontal.png" alt="Winning Ranch, our horses win" width="870" height="323"></a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Menu"><span></span><span></span><span></span></button>
+    <nav class="nav" id="site-nav" aria-label="Main">
+      <a href="stalls.html" aria-current="page">Stalls</a>
+      <a href="waivers.html">Waivers</a>
+      <a href="contact.html">Contact</a>
+      <a href="portal/">Owner login</a>
+      <a class="phone" href="tel:+13054099656">(305) 409-9656</a>
+      <a class="btn btn--red" href="stalls.html">Book a stall</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="page-head page-head--tight">
+  <div class="wrap">
+    <h1>Pick your stall</h1>
+    <p class="lede">Choose your dates, then hover any stall to see it. Click a stall to see photos and add it to your booking.</p>
+  </div>
+</section>
+
+<section class="datebar" aria-label="Your dates">
+  <div class="wrap datebar__inner">
+    <div class="field"><label for="d-from">Check-in</label><input type="date" id="d-from"></div>
+    <div class="field"><label for="d-to">Check-out</label><input type="date" id="d-to"></div>
+    <p class="datebar__status" id="date-status" aria-live="polite">Pick dates to see which stalls are open.</p>
+    <ul class="legend" aria-label="Map key">
+      <li><i class="lg lg--open"></i>Open</li>
+      <li><i class="lg lg--taken"></i>Taken</li>
+      <li><i class="lg lg--off"></i>Not in use</li>
+      <li><i class="lg lg--picked"></i>In your booking</li>
+    </ul>
+  </div>
+</section>
+
+<section class="mapsec" aria-label="Ranch map">
+  <div class="wrap">
+    <div class="ranch-map">
+      <div class="ranch-map__scroll" id="map-scroll">
+        <div class="ranch-map__stage" id="map-stage">
+          <img src="img/ranch-map.jpg" alt="Illustrated map of Winning Ranch. Main barn with 20 stalls, 8 outdoor stalls, main arena, second arena, two round pens, tack rooms, hay storage and an outdoor bathroom." width="1448" height="1086">
+          <svg id="map-svg" viewBox="0 0 1448 1086" preserveAspectRatio="xMidYMid meet" aria-label="Stalls"></svg>
+          <div class="peek" id="peek" aria-hidden="true"></div>
+        </div>
+      </div>
+      <p class="ranch-map__hint">Drag sideways to see the whole ranch. Tap a stall for photos and prices.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section stall-index" aria-labelledby="list-title">
+  <div class="wrap">
+    <div class="section__head">
+      <h2 id="list-title">All stalls</h2>
+      <p>The same stalls as the map, in a list. Monthly boarding? <a class="textlink" href="contact.html?topic=monthly">Ask us</a>.</p>
+    </div>
+    <div id="stall-list" class="stall-list"><p class="lede">Loading stalls…</p></div>
+  </div>
+</section>
+
+<dialog class="sheet" id="stall-sheet" aria-labelledby="sheet-title"></dialog>
+<dialog class="sheet sheet--form" id="book-sheet" aria-labelledby="book-title"></dialog>
+
+<div class="tray" id="tray" hidden>
+  <div class="tray__inner wrap">
+    <div class="tray__info">
+      <ul class="tray__chips" id="tray-chips"></ul>
+      <p class="tray__meta" id="tray-meta"></p>
+    </div>
+    <button class="btn btn--red" type="button" id="tray-continue">Continue to booking</button>
+  </div>
+</div>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <img src="img/crest-light.png" alt="Winning Ranch" width="621" height="632">
+      </div>
+      <div>
+        <h3>Visit</h3>
+        <address>5360 W Agate Ave<br>Las Vegas, NV</address>
+        <ul style="margin-top:10px"><li><a href="https://www.google.com/maps/dir/?api=1&destination=5360+W+Agate+Ave,+Las+Vegas,+NV" target="_blank" rel="noopener">Get directions</a></li></ul>
+      </div>
+      <div>
+        <h3>Contact</h3>
+        <ul>
+          <li><a href="tel:+13054099656">(305) 409-9656</a></li>
+          <li><a href="mailto:Jenna@WinningRanch.com">Jenna@WinningRanch.com</a></li>
+          <li><a href="https://www.facebook.com/WinningRanch" target="_blank" rel="noopener">Facebook</a></li>
+          <li><a href="https://www.instagram.com/winningranch/" target="_blank" rel="noopener">Instagram</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Boarding</h3>
+        <ul>
+          <li><a href="stalls.html">Stall map</a></li>
+          <li><a href="book.html">How booking works</a></li>
+          <li><a href="contact.html?topic=monthly">Monthly boarding</a></li>
+          <li><a href="waivers.html">Sign waivers</a></li>
+          <li><a href="portal/">Owner login</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-base">
+      <span>&copy; <span data-year>2026</span> Winning Ranch</span>
+      <span>Horse boarding in Las Vegas, Nevada</span>
+    </div>
+  </div>
+</footer>
+
+<div class="quickbar">
+  <a class="btn" href="tel:+13054099656">Call Jenna</a>
+  <a class="btn btn--red" href="stalls.html">Book a stall</a>
+</div>
+
+<script src="js/site.js" defer></script>
+<script src="js/stalls.js" defer></script>
+</body>
+</html>

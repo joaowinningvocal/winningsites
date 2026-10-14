@@ -2,6 +2,7 @@
    - /ranch/, /realty/ ...   the site drafts (static files in /sites/<id>)
    - /review/                the review tool (switch sites, leave pins/arrows/boxes + comments)
    - /api/*                  comments, export, contact form
+   - /api/ranch/*            stalls map, bookings, owner portal, staff app (routes/ranch.js)
    Comments are saved to DATA_DIR/review.json. On Railway, mount a Volume at /data
    and set DATA_DIR=/data so they survive redeploys. */
 
@@ -64,6 +65,9 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '200kb' }));
+
+// ---------------------------------------------------------------- Winning Ranch app (stalls, bookings, owner portal, staff)
+app.use('/api/ranch', require('./routes/ranch')({ dataDir: DATA_DIR }));
 
 // ---------------------------------------------------------------- sites
 const OVERLAY_TAG = '<script src="/review/overlay.js" defer></script>';
