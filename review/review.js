@@ -614,5 +614,11 @@
     renderPages();
   });
 
+  // The top bar wraps to two rows on phones; keep the layout in sync with its real height
+  const bar = $('.bar');
+  const syncBar = () => document.documentElement.style.setProperty('--bar-h', bar.offsetHeight + 'px');
+  if ('ResizeObserver' in window) new ResizeObserver(syncBar).observe(bar);
+  syncBar();
+
   init();
 })();

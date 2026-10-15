@@ -92,7 +92,7 @@ for (const site of SITES) {
     try { rel = decodeURIComponent(req.path); } catch (_) { return res.status(400).end(); }
     if (rel.endsWith('/')) rel += 'index.html';
     else if (!path.extname(rel)) rel += '.html';
-    if (!rel.endsWith('.html')) return next();
+    if (!rel.endsWith('.html') || rel.startsWith('/docs/')) return next(); // document fragments stay untouched
     const file = path.join(dir, path.normalize(rel));
     if (!file.startsWith(dir + path.sep)) return res.status(400).end();
     try {

@@ -21,6 +21,10 @@
         "title": "Waivers"
       },
       {
+        "path": "/sign.html",
+        "title": "Sign a waiver"
+      },
+      {
         "path": "/contact.html",
         "title": "Contact"
       },

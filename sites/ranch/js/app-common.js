@@ -36,13 +36,21 @@ window.WR = (() => {
   }
 
   let toastTimer = 0;
-  function toast(msg) {
+  function toast(msg, opts = {}) {
     let el = $('.app-toast');
     if (!el) { el = document.createElement('div'); el.className = 'app-toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
     el.textContent = msg;
+    el.classList.toggle('has-action', !!opts.action);
+    if (opts.action) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = opts.action;
+      b.addEventListener('click', () => { el.classList.remove('is-on'); opts.onAction(); }, { once: true });
+      el.appendChild(b);
+    }
     el.classList.add('is-on');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('is-on'), 2600);
+    toastTimer = setTimeout(() => el.classList.remove('is-on'), opts.action ? 6000 : 2600);
   }
 
   function timeAgo(iso) {

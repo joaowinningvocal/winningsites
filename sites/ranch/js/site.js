@@ -46,10 +46,10 @@
       if (!res.ok) throw new Error(res.status);
       form.reset();
       status.dataset.state = 'ok';
-      status.textContent = 'Message sent. Jenna will get back to you.';
+      status.textContent = 'Message sent. A team member will get back to you.';
     } catch {
       status.dataset.state = 'error';
-      status.textContent = 'Your message didn’t send. Call (305) 409-9656 or email Jenna@WinningRanch.com.';
+      status.textContent = 'Your message didn’t send. Call (305) 409-9656 to reach a team member.';
     } finally {
       submit.disabled = false;
     }

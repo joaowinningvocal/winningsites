@@ -7,6 +7,7 @@ Um app só (Node + Express) que serve os novos sites do **Winning Ranch** e do *
 | `/review/` | Ferramenta de revisão (o link pra mandar pro chefe) |
 | `/ranch/` | Rascunho do novo Winning Ranch |
 | `/ranch/stalls.html` | Mapa interativo das baias (preços, fotos, disponibilidade, reserva) |
+| `/ranch/sign.html` | Assinatura online dos waivers e agreements |
 | `/ranch/portal/` | Portal do dono: login, cavalos, fotos e vídeos postados pela equipe |
 | `/ranch/admin/` | App da equipe: postar updates, reservas, cavalos, pessoas, baias e preços |
 | `/realty/` | Espaço do Winning Realty (por enquanto só um placeholder) |
@@ -81,19 +82,23 @@ O servidor injeta o `overlay.js` em todo HTML servido, mas o script não faz nad
 
 | Arquivo | Onde aparece |
 |---|---|
-| `hero.jpg` | Topo da home (substitui o painel preto com o cavalo) |
+| `hero.jpg` | Topo da home (já tem a foto das baias com os cavalos) |
 | `care.jpg` | "Why owners choose Winning Ranch" |
 | `aisle.jpg` | Galeria: corredor das baias |
 | `stall.jpg` | Galeria: dentro de uma baia |
 | `rv.jpg` | Galeria: área de trailer e RV |
 
+A mesma foto das baias (`barn-stalls.jpg`) aparece em todas as baias do celeiro no mapa até cada uma ganhar foto própria. Dá pra tirar ou trocar na aba **Stalls** do dashboard.
+
 **Informações** marcadas em vermelho tracejado no site (procure `class="tbd"` no HTML):
-- preço mensal (agora se coloca no app da equipe, em Baias e preços)
-- tamanho das baias
 - horário de visita
 - o que o full care inclui
 
-**Ainda apontando pra Wix:** os 4 formulários de waiver (`waivers.html`). A reserva agora é pelo mapa.
+**Preços:** o preço por noite de cada baia ainda está vazio (o site mostra "Price on request"). Defina no **Pricing board** do dashboard. A faixa mensal ($750 a $1,000) já aparece no site e também é editável lá.
+
+**Email de contato:** os links dizem "Email a team member", mas o endereço por trás ainda é `Jenna@WinningRanch.com`. Troque pelo endereço geral quando existir (busque `mailto:` nos HTML).
+
+Nada mais aponta pra Wix: a reserva é pelo mapa e os waivers são assinados no próprio site.
 
 **Formulário de contato:** salva em `data/review.json` e pode ser lido em `/api/contacts` (protegido pela senha). Configure `CONTACT_WEBHOOK_URL` pra receber cada mensagem em outro lugar.
 
@@ -106,9 +111,11 @@ O servidor injeta o `overlay.js` em todo HTML servido, mas o script não faz nad
 ### Mapa das baias (`stalls.html`)
 O visitante escolhe as datas e o mapa mostra quais baias estão livres. Passando o mouse numa baia aparece um card animado com a foto (ou um zoom do mapa enquanto não tiver foto), status e preço. Clicando, abre a ficha da baia com fotos, preço por noite e por mês, tamanho e o botão de adicionar à reserva. Dá pra juntar várias baias e mandar um pedido só. No celular o mapa rola de lado e o toque abre a ficha. Embaixo do mapa tem a lista de todas as baias.
 
-O pedido fica **pendente** e já segura as baias. A equipe confirma ou recusa no app. **Ainda não tem pagamento online:** a Jenna confirma e cobra por telefone. O próximo passo natural é ligar o Stripe Checkout na confirmação.
+O pedido fica **pendente** e já segura as baias. A equipe confirma ou recusa no app. **Ainda não tem pagamento online:** um membro da equipe confirma e cobra por telefone. O próximo passo natural é ligar o Stripe Checkout na confirmação.
 
-As posições das baias no mapa estão em `lib/ranch-seed.js`, em pixels da imagem `img/ranch-map.jpg` (1448 x 1086). Se trocarem a arte do mapa, ajuste esses números. As áreas sem reserva (arenas, round pens, etc.) estão no topo de `js/stalls.js`.
+**Trocar o mapa:** substitua `sites/ranch/img/ranch-map.jpg` (e `ranch-map-small.jpg`) e ajuste as posições em `lib/ranch-layout.js`: tamanho da imagem, retângulo de cada baia e as áreas sem reserva (arenas, round pens, estacionamento de trailer…), tudo em pixels da imagem. As posições não ficam no banco, então basta fazer o deploy. Os preços, fotos e status das baias continuam como estão.
+
+As tarifas do site incluem full care. RV, trailer e dry hookups são confirmados com a equipe antes da reserva (o formulário tem uma caixa pra pessoa avisar).
 
 ### Portal do dono (`/ranch/portal/`)
 O dono loga e vê os cavalos dele, com o feed de fotos e vídeos que a equipe posta, agrupado por dia. Funciona como app no celular: dá pra "Adicionar à tela de início" (tem manifest e ícones).
@@ -121,15 +128,29 @@ Feito pra usar no celular, no meio do rancho:
 - **Reservas:** pedidos que chegaram pelo mapa, com botões de confirmar, recusar, concluir e cancelar, além de uma nota interna.
 - **Cavalos:** cadastro, dono e baia. Um cavalo numa baia deixa ela ocupada no mapa.
 - **Pessoas:** donos e equipe, com os links de acesso.
-- **Baias e preços:** preço por noite e por mês, tamanho, status, descrição e fotos de cada baia (com opção de aplicar pra todas do mesmo grupo), além dos preços de full care e trailer/RV.
+- **Pricing (Pricing board):** o celeiro aparece no mapa com cada baia colorida pelo preço (clara = mais barata, vermelha = mais cara). Clique numa baia, use Shift para somar outras ou arraste uma caixa para pegar uma fileira inteira. Dá pra definir um preço exato, ajustar por $ ou % ou limpar, com prévia do antes e depois. Embaixo tem uma planilha com todas as baias para editar uma a uma (Enter salva e desce para a próxima). Toda mudança fica no histórico e a mais recente pode ser desfeita. Também ficam ali a faixa mensal mostrada no site e o preço da vaga de trailer/RV.
+- **Stalls:** fotos, tamanho, status (em uso ou não) e descrição de cada baia.
+
+### Waivers online (`/ranch/sign.html`)
+Os quatro documentos do rancho (boarding agreement, adult lesson packet, adult liability waiver e employee packet) foram convertidos dos arquivos Word **sem mudar o texto**, inclusive os nomes das partes. A página mostra o documento pra ler (com o PDF original pra baixar) e um formulário com os mesmos campos em branco do papel. No boarding, isso inclui a ficha do cavalo: saúde, vacinas, alimentação, seguro, veterinário e a decisão sobre cirurgia, com as iniciais. No fim a pessoa marca que leu e concorda, aceita assinar eletronicamente, digita o nome e desenha a assinatura (funciona com o dedo no celular).
+
+- **Menor de idade:** a pessoa marca a opção e quem assina é o pai, a mãe ou o responsável. O nome dele fica registrado.
+- **Cópia assinada:** depois de assinar, a pessoa recebe um link privado pra abrir, imprimir ou salvar em PDF a cópia com o texto, as respostas e a assinatura.
+- **Equipe:** a aba **Waivers** do dashboard lista tudo com busca e filtro por documento, abre a cópia assinada (com IP e aparelho) e tem o botão **Countersign** pra assinatura da ranch (Management). Também tem os links de assinatura pra mandar por SMS.
+- **Versões:** cada assinatura guarda o texto exato que foi assinado. Se vocês editarem um documento depois (`sites/ranch/docs/<id>.html` e o PDF), as cópias antigas continuam mostrando a versão que a pessoa assinou.
+- **Campos:** os campos de cada documento estão em `lib/docs.js`.
+- **W-9:** fica só pra baixar. O site não coleta número de Social Security.
+
+Vale o advogado de vocês revisar o fluxo antes de aposentar o papel (consentimento eletrônico, menores de idade e retenção dos registros).
 
 ### Onde ficam os dados
-Tudo fica em `DATA_DIR`: `ranch.json` (baias, reservas, pessoas, cavalos, updates) e `uploads/` (fotos das baias são públicas; fotos e vídeos dos cavalos só abrem para o dono e a equipe). Por isso o Volume no Railway é obrigatório.
+Tudo fica em `DATA_DIR`: `ranch.json` (baias, reservas, pessoas, cavalos, updates, histórico de preços, waivers assinados e as versões dos documentos) e `uploads/` (fotos das baias são públicas; fotos e vídeos dos cavalos e as assinaturas desenhadas só abrem para quem tem acesso). Por isso o Volume no Railway é obrigatório.
 
 ### Limitações desta versão
 - Sem pagamento online e sem envio automático de email/SMS.
 - Vídeos ficam no Volume do Railway. Pra muitos vídeos, o certo é migrar para S3 ou Cloudflare R2.
 - Vídeo `.mov` de iPhone (HEVC) toca no Safari, mas pode não tocar no Chrome do computador. Fotos HEIC idem. Converter na hora do upload fica pra uma próxima versão.
+- Atualizações de dados de versões anteriores rodam sozinhas uma vez na inicialização (tamanho 12' x 24', faixa mensal, foto do celeiro). Elas não sobrescrevem o que a equipe já mudou.
 - Os dados ficam em um arquivo JSON. Quando virar app com muitos usuários, migrar para Postgres (o código de rotas já está separado em `routes/ranch.js`).
 
 ## Limitações conhecidas (ferramenta de revisão)

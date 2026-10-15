@@ -1,18 +1,8 @@
 (() => {
   const API = '/api/ranch';
-  const MAP_W = 1448, MAP_H = 1086;
-  const MAP_URL = 'img/ranch-map.jpg';
-
-  // Non-bookable places on the map (hover shows what they are)
-  const AREAS = [
-    { id: 'main-arena', name: 'Main arena', text: 'The large lit riding arena.', shape: { x: 630, y: 90, w: 735, h: 415 } },
-    { id: 'second-arena', name: 'Second arena', text: 'A second lit riding arena.', shape: { x: 62, y: 738, w: 446, h: 238 } },
-    { id: 'pen-1', name: 'Round pen 1', text: 'Small round pen for lunging and groundwork.', circle: { cx: 135, cy: 125, r: 84 } },
-    { id: 'pen-2', name: 'Round pen 2', text: 'Small round pen for lunging and groundwork.', circle: { cx: 126, cy: 298, r: 86 } },
-    { id: 'tack', name: 'Tack rooms', text: 'Storage for saddles and gear.', shape: { x: 58, y: 398, w: 108, h: 124 } },
-    { id: 'hay', name: 'Hay storage', text: 'The hay barn.', shape: { x: 58, y: 578, w: 306, h: 92 } },
-    { id: 'bath', name: 'Outdoor bathroom', text: 'Restroom for owners and riders.', shape: { x: 1292, y: 688, w: 96, h: 74 } },
-  ];
+  // Map size and the non-bookable areas come from the server (lib/ranch-layout.js)
+  let MAP_W = 1536;
+  let AREAS = [];
 
   const STATUS_TEXT = {
     available: (range) => (range ? 'Open for your dates' : 'Open'),
@@ -29,6 +19,12 @@
   const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
   const nightsBetween = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
   const fmtDay = (s) => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const monthlyText = (s) => {
+    if (s.monthly != null) return money(s.monthly);
+    const { monthlyMin: lo, monthlyMax: hi } = state.settings;
+    if (lo != null && hi != null) return lo === hi ? money(lo) : `${money(lo)} to ${money(hi)}`;
+    return lo != null ? `From ${money(lo)}` : 'Ask us';
+  };
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const canHover = matchMedia('(hover: hover) and (pointer: fine)').matches;
 
@@ -95,6 +91,8 @@
       const data = await res.json();
       state.stalls = data.stalls;
       state.settings = data.settings || {};
+      if (data.map) MAP_W = data.map.width;
+      if (data.areas) AREAS = data.areas;
     } catch {
       els.status.dataset.state = 'warn';
       els.status.textContent = 'The stall map didn’t load. Refresh the page, or call (305) 409-9656.';
@@ -188,7 +186,7 @@
         ? (state.selected.has(stall.id) ? 'In your booking. Click to review.' : state.range ? 'Click to see photos and add it.' : 'Click for photos. Pick dates to book.')
         : 'Click for details.';
       body = `<p class="peek__status">${esc(STATUS_TEXT[st](state.range))}</p><h3>${esc(stall.name)}</h3>
-        <p class="peek__price">${price}</p><p class="peek__hint">${esc(extra)}. ${esc(hint)}</p>`;
+        <p class="peek__price">${price}</p><p class="peek__month">Monthly: ${esc(monthlyText(stall))}</p><p class="peek__hint">${esc(extra)}. ${esc(hint)}</p>`;
       els.peek.dataset.state = st;
     } else {
       body = `<h3>${esc(area.name)}</h3><p class="peek__hint" style="margin-top:0">${esc(area.text)}</p>`;
@@ -300,10 +298,10 @@
         <p class="sheet__status" data-state="${s.availability}">${esc(STATUS_TEXT[s.availability](state.range))}${state.range ? `, ${fmtDay(state.range.from)} to ${fmtDay(state.range.to)}` : ''}</p>
         <dl class="sheet__facts">
           <div><dt>Per night</dt><dd>${s.nightly != null ? money(s.nightly) : 'On request'}</dd></div>
-          <div><dt>Per month</dt><dd>${s.monthly != null ? money(s.monthly) : 'Ask us'}</dd></div>
+          <div><dt>Per month</dt><dd>${esc(monthlyText(s))}</dd></div>
           <div><dt>Size</dt><dd>${esc(s.size || 'Ask us')}</dd></div>
         </dl>
-        <p class="sheet__desc">${esc(s.description)}</p>
+        <p class="sheet__desc">${esc(s.description)} Rates include full care.</p>
         <div class="sheet__actions">${action}</div>
       </div>`;
     els.sheet.dataset.id = s.id;
@@ -368,7 +366,7 @@
     const ids = [...state.selected];
     const n = nightsBetween(state.range.from, state.range.to);
     const est = estimate();
-    const fc = state.settings.fullCareNightly, pk = state.settings.parkingNightly;
+    const pk = state.settings.parkingNightly;
     els.book.innerHTML = `
       <button class="sheet__close" type="button" data-act="close" aria-label="Close">&times;</button>
       <div class="sheet__body">
@@ -377,17 +375,15 @@
           <div class="summary">
             <p><strong>${fmtDay(state.range.from)} to ${fmtDay(state.range.to)}</strong>, ${n} night${n === 1 ? '' : 's'}</p>
             <ul>${ids.map((id) => { const s = stallById(id); return `<li>${esc(s.name)}${s.nightly != null ? `, ${money(s.nightly)} per night` : ''}</li>`; }).join('')}</ul>
-            <p style="margin-top:8px">${est != null ? `Stalls: ${money(est)}. Add-ons are confirmed with your booking.` : 'Jenna confirms the total with you.'}</p>
+            <p style="margin-top:8px">Rates include full care. ${est != null ? `Stalls: ${money(est)}.` : 'A team member confirms the total with you.'}</p>
           </div>
           <fieldset>
             <legend>Horses</legend>
             ${ids.map((id, i) => `<div class="field"><label for="h-${i}">Horse in ${esc(stallById(id).name)}</label><input id="h-${i}" name="horse" required autocomplete="off"></div>`).join('')}
           </fieldset>
           <fieldset>
-            <legend>Care and parking</legend>
-            <label class="choice"><input type="radio" name="care" value="self" checked><span>Self care<small>You handle feeding and cleaning.</small></span></label>
-            <label class="choice"><input type="radio" name="care" value="full"><span>Full care${fc != null ? `, ${money(fc)} per horse per night` : ''}<small>The ranch team takes care of your horse.</small></span></label>
-            <label class="choice"><input type="checkbox" name="parking"><span>I&rsquo;m bringing a trailer or RV${pk != null ? `, ${money(pk)} per night` : ''}<small>Spots are limited. We confirm when we call.</small></span></label>
+            <legend>RV, trailer or dry hookup</legend>
+            <label class="choice"><input type="checkbox" name="parking"><span>I&rsquo;ll need RV parking, trailer parking or a dry hookup${pk != null ? `, ${money(pk)} per night` : ''}<small>Specialty items are limited. Please contact a team member at (305) 409-9656 to confirm before you book.</small></span></label>
           </fieldset>
           <fieldset>
             <legend>Your details</legend>
@@ -426,7 +422,7 @@
     }
     const body = {
       stallIds: [...state.selected], from: state.range.from, to: state.range.to, horses,
-      care: f.care.value, parking: f.parking.checked, coggins: f.coggins.checked,
+      parking: f.parking.checked, coggins: f.coggins.checked,
       name: f.name.value, email: f.email.value, phone: f.phone.value, notes: f.notes.value, website: f.website.value,
     };
     const btn = f.querySelector('[type="submit"]');
@@ -446,7 +442,7 @@
         <div class="sheet__body done">
           <h2 id="book-title">Request sent</h2>
           <p class="ref">${esc(data.ref)}</p>
-          <p>We&rsquo;re holding ${esc(data.stalls.join(', '))} for ${fmtDay(data.from)} to ${fmtDay(data.to)}. Jenna will call or email you to confirm and take payment.</p>
+          <p>We&rsquo;re holding ${esc(data.stalls.join(', '))} for ${fmtDay(data.from)} to ${fmtDay(data.to)}. A team member will call or email you to confirm and take payment.</p>
           <p>Before you arrive, everyone in your party signs a waiver, and every horse needs a full Coggins.</p>
           <div class="sheet__actions"><a class="btn btn--red" href="waivers.html">Sign waivers</a><button class="btn" type="button" data-act="close">Back to the map</button></div>
         </div>`;

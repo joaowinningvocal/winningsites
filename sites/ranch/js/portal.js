@@ -21,7 +21,7 @@
       return loginView(root, {
         title: 'Owner portal',
         intro: 'See photos and videos of your horse from the ranch team.',
-        foot: 'No login yet? The ranch sets one up when your horse checks in. Call Jenna at <a href="tel:+13054099656">(305) 409-9656</a>.',
+        foot: 'No login yet? The ranch sets one up when your horse checks in. Call a team member at <a href="tel:+13054099656">(305) 409-9656</a>.',
         onSuccess: (u) => { user = u; route(); },
       });
     }
@@ -59,7 +59,7 @@
         ${horses.length ? `<div class="horse-grid">${cards}</div>` : `
           <div class="empty-box">
             <h2>No horses on your account yet</h2>
-            <p>Once your horse checks in at the ranch, its photos and videos show up here. Questions? Call Jenna at <a class="textlink" href="tel:+13054099656">(305) 409-9656</a>.</p>
+            <p>Once your horse checks in at the ranch, its photos and videos show up here. Questions? Call a team member at <a class="textlink" href="tel:+13054099656">(305) 409-9656</a>.</p>
           </div>`}
       </div>`;
   }

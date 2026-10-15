@@ -9,7 +9,9 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { createStore } = require('../lib/store');
 const { createAuth, rateLimit } = require('../lib/auth');
-const { seedStalls, seedDemo } = require('../lib/ranch-seed');
+const { seedStalls, seedDemo, STALL_SIZE } = require('../lib/ranch-seed');
+const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
+const { DOCS, docById, allFields } = require('../lib/docs');
 
 const IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
 const VIDEO = { 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'video/3gpp': '.3gp' };
@@ -19,7 +21,7 @@ const HOLDS = new Set(['pending', 'confirmed']); // these block the stall
 module.exports = function ranchRouter({ dataDir }) {
   const store = createStore(path.join(dataDir, 'ranch.json'), {
     stalls: [],
-    settings: { fullCareNightly: null, parkingNightly: null },
+    settings: { parkingNightly: null, monthlyMin: 750, monthlyMax: 1000 },
     bookings: [],
     users: [],
     sessions: [],
@@ -27,6 +29,10 @@ module.exports = function ranchRouter({ dataDir }) {
     horses: [],
     updates: [],
     seq: { booking: 1000 },
+    priceLog: [],
+    waivers: [],
+    docVersions: {},
+    migrations: {},
   });
   const db = store.data;
   const auth = createAuth(store);
@@ -36,6 +42,32 @@ module.exports = function ranchRouter({ dataDir }) {
 
   // ---------------------------------------------------------- first run
   if (!db.stalls.length) { db.stalls = seedStalls(); store.save(); }
+
+  // ---------------------------------------------------------- one-time data updates for existing installs
+  const BARN_PHOTO = '/ranch/img/photos/barn-stalls.jpg';
+  const migrations = {
+    // Shapes now come from lib/ranch-layout.js, not the database
+    'layout-from-code': () => db.stalls.forEach((st) => { delete st.shape; }),
+    // Stalls are 12' x 24' (the smaller one keeps its own size)
+    'stall-size-12x24': () => db.stalls.forEach((st) => { if (!st.size && !st.smaller) st.size = STALL_SIZE; }),
+    // Advertised monthly range shown when a stall has no monthly price of its own
+    'monthly-range': () => {
+      if (db.settings.monthlyMin === undefined) db.settings.monthlyMin = 750;
+      if (db.settings.monthlyMax === undefined) db.settings.monthlyMax = 1000;
+      delete db.settings.fullCareNightly; // rates now include full care
+    },
+    // Real photo of the barn stalls on every main-barn stall in use
+    'barn-photo': () => db.stalls.forEach((st) => {
+      if (st.group === 'main' && st.status === 'available' && !st.photos.some((ph) => ph.url === BARN_PHOTO)) {
+        st.photos.unshift({ id: crypto.randomBytes(8).toString('hex'), url: BARN_PHOTO, builtIn: true });
+      }
+    }),
+  };
+  let migrated = false;
+  for (const [name, run] of Object.entries(migrations)) {
+    if (!db.migrations[name]) { run(); db.migrations[name] = new Date().toISOString(); migrated = true; }
+  }
+  if (migrated) store.save();
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   if (adminEmail && process.env.ADMIN_PASSWORD && !db.users.some((u) => u.email === adminEmail)) {
     db.users.push({
@@ -64,15 +96,17 @@ module.exports = function ranchRouter({ dataDir }) {
     return db.bookings.some((b) => b.id !== ignoreBookingId && HOLDS.has(b.status) && b.stallIds.includes(stallId) && b.from < to && from < b.to);
   }
 
+  const photoUrl = (p) => p.url || '/api/ranch/files/' + p.file;
+
   function publicStall(s, range) {
     let availability = 'available';
     if (s.status !== 'available') availability = 'unavailable';
     else if (horseInStall(s.id)) availability = 'occupied';
     else if (range && stallBusy(s.id, range.from, range.to)) availability = 'booked';
     return {
-      id: s.id, group: s.group, number: s.number, name: s.name, shape: s.shape,
+      id: s.id, group: s.group, number: s.number, name: s.name, shape: SHAPES[s.id] || s.shape || null,
       smaller: !!s.smaller, size: s.size, nightly: s.nightly, monthly: s.monthly, description: s.description,
-      photos: s.photos.map((p) => ({ id: p.id, url: '/api/ranch/files/' + p.file })),
+      photos: s.photos.map((p) => ({ id: p.id, url: photoUrl(p), builtIn: !!p.builtIn })),
       availability,
     };
   }
@@ -140,7 +174,7 @@ module.exports = function ranchRouter({ dataDir }) {
   r.get('/stalls', (req, res) => {
     const { from, to } = req.query;
     const range = isDate(from) && isDate(to) && from < to ? { from, to } : null;
-    res.json({ stalls: db.stalls.map((s) => publicStall(s, range)), settings: db.settings, range });
+    res.json({ stalls: db.stalls.map((s) => publicStall(s, range)), settings: db.settings, range, map: MAP, areas: AREAS });
   });
 
   r.post('/bookings', rateLimit({ limit: 8, windowMs: 60 * 60e3, message: 'Too many booking requests. Call (305) 409-9656.' }), async (req, res) => {
@@ -172,11 +206,10 @@ module.exports = function ranchRouter({ dataDir }) {
     }
 
     const n = nights(from, to);
-    const care = b.care === 'full' ? 'full' : 'self';
+    const care = 'full'; // every rate includes full care
     const parking = !!b.parking;
     const stallTotal = stallIds.every((id) => stallById(id).nightly !== null) ? stallIds.reduce((sum, id) => sum + stallById(id).nightly, 0) * n : null;
-    const careTotal = care === 'full' ? (db.settings.fullCareNightly !== null ? db.settings.fullCareNightly * stallIds.length * n : null) : 0;
-    const estimate = stallTotal !== null && careTotal !== null ? stallTotal + careTotal : null;
+    const estimate = stallTotal;
 
     db.seq.booking += 1;
     const booking = {
@@ -189,6 +222,114 @@ module.exports = function ranchRouter({ dataDir }) {
     await store.save();
     notify('booking', { ref: booking.ref, stalls: stallIds.map((id) => stallById(id).name), from, to, nights: n, horses, care, parking, name, email, phone, notes: booking.notes, estimate });
     res.status(201).json({ ref: booking.ref, from, to, nights: n, stalls: stallIds.map((id) => stallById(id).name), estimate });
+  });
+
+
+  // ======================================================== waivers signed online
+  const docsDir = path.join(__dirname, '..', 'sites', 'ranch', 'docs');
+  const docHtml = (id) => { try { return fs.readFileSync(path.join(docsDir, path.basename(id) + '.html'), 'utf8'); } catch (_) { return ''; } };
+  const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+  const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const sha = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
+
+  r.get('/docs', (_req, res) => res.json({ docs: DOCS }));
+
+  r.post('/waivers', rateLimit({ limit: 12, windowMs: 60 * 60e3, message: 'Too many signatures from this device. Call (305) 409-9656.' }), async (req, res) => {
+    const b = req.body || {};
+    const doc = docById(b.docId);
+    if (!doc) return res.status(400).json({ error: 'Unknown document.' });
+    const input = b.fields && typeof b.fields === 'object' ? b.fields : {};
+    const fields = {};
+    const errors = [];
+    for (const f of allFields(doc)) {
+      const shown = !f.showIf || input[f.showIf[0]] === f.showIf[1];
+      const v = shown && typeof input[f.key] === 'string' ? input[f.key].trim().slice(0, f.type === 'textarea' ? 2000 : (f.max || 300)) : '';
+      if (f.required && shown && !v) { errors.push(`Fill in “${f.label}”.`); continue; }
+      if (!v) continue;
+      if (f.type === 'email' && !validEmail(v)) errors.push('Check the email address.');
+      else if (f.type === 'date' && !isDate(v)) errors.push(`Check the date in “${f.label}”.`);
+      else if (f.type === 'choice' && !f.options.includes(v)) errors.push(`Pick an option for “${f.label}”.`);
+      else fields[f.key] = v;
+    }
+    const forMinor = !!(doc.minor && b.minor === true);
+    const guardianName = forMinor ? str(b.guardianName, 120) : '';
+    if (forMinor && !guardianName) errors.push('Add the parent or guardian’s full name.');
+    const signerName = forMinor ? guardianName : fields.name || '';
+    const typed = str(b.typedSignature, 120);
+    if (!typed) errors.push('Type your full name to sign.');
+    else if (signerName && norm(typed) !== norm(signerName)) errors.push(`Type your name exactly as above (${signerName}).`);
+    if (b.agree !== true) errors.push('Confirm you read the whole document and agree to it.');
+    if (b.esign !== true) errors.push('Agree to sign electronically.');
+    const sig = typeof b.signature === 'string' ? b.signature : '';
+    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(sig) || sig.length > 700000) errors.push('Draw your signature in the box.');
+    if (errors.length) return res.status(400).json({ error: errors[0], errors });
+
+    // Keep the exact text that was signed, even if the document is edited later
+    const html = docHtml(doc.id);
+    const version = hashOf(html);
+    if (!db.docVersions[version]) db.docVersions[version] = { docId: doc.id, html, firstSignedAt: now() };
+
+    const file = newId() + '.png';
+    await fs.promises.writeFile(path.join(uploads, 'private', file), Buffer.from(sig.split(',')[1], 'base64'));
+    const key = crypto.randomBytes(24).toString('base64url');
+    const w = {
+      id: newId(), docId: doc.id, docTitle: doc.title, docVersion: version,
+      fields, minor: forMinor, guardianName, signerName, typedSignature: typed,
+      signatureFile: file, copyKey: sha(key),
+      signedAt: now(), ip: req.ip, userAgent: str(req.headers['user-agent'], 300),
+      countersign: null,
+    };
+    db.waivers.push(w);
+    await store.save();
+    notify('waiver', { doc: doc.title, name: fields.name, signer: signerName, email: fields.email, phone: fields.cell, horse: fields.horseName || '', signedAt: w.signedAt });
+    res.status(201).json({ id: w.id, doc: doc.title, signedAt: w.signedAt, copyUrl: `/api/ranch/waivers/${w.id}/copy?k=${key}` });
+  });
+
+  // The signed copy: the exact text signed, what they filled in, and the signature
+  async function signedCopy(w, { forStaff }) {
+    const doc = docById(w.docId);
+    const html = (db.docVersions[w.docVersion] || {}).html || docHtml(w.docId);
+    let sig = '';
+    try { sig = (await fs.promises.readFile(path.join(uploads, 'private', path.basename(w.signatureFile)))).toString('base64'); } catch (_) {}
+    const e = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'long', timeStyle: 'short' }) + ' (Las Vegas time)';
+    const sections = (doc ? doc.sections : []).map((sec) => {
+      const rows = sec.fields.filter((f) => w.fields[f.key]).map((f) => `<tr><th>${e(f.label)}</th><td>${e(w.fields[f.key])}</td></tr>`).join('');
+      return rows ? `<h3>${e(sec.title)}</h3><table>${rows}</table>` : '';
+    }).join('');
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+      <title>${e(w.docTitle)}, ${e(w.fields.name)}</title>
+      <style>body{font:15px/1.55 Georgia,serif;color:#111;max-width:780px;margin:0 auto;padding:0 20px 60px}
+      .bar{position:sticky;top:0;background:#fff;padding:12px 0;border-bottom:1px solid #ddd;margin-bottom:20px;font-family:Arial,sans-serif;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+      .bar button{font:600 15px Arial,sans-serif;padding:10px 16px;background:#CC232A;color:#fff;border:0;cursor:pointer}
+      .box{border:2px solid #111;padding:14px 18px;margin:0 0 26px;font-family:Arial,sans-serif;font-size:14px}
+      .box strong{font-size:16px}
+      h2{font:700 18px Arial,sans-serif;margin:34px 0 8px;border-top:2px solid #111;padding-top:14px}h3{font:700 15px Arial,sans-serif;margin:18px 0 6px}
+      table{border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #ddd;vertical-align:top}th{width:40%;font-weight:normal;color:#555}
+      .doc table td,.doc table th{border:1px solid #ccc}.sig img{max-width:340px;border-bottom:1px solid #111;display:block;margin:6px 0 4px}
+      @media print{.bar{display:none}h2{page-break-before:auto}.sig{page-break-inside:avoid}}</style></head><body>
+      <div class="bar"><button onclick="print()">Print or save as PDF</button><span>Keep a copy for your records.</span></div>
+      <div class="box"><strong>${e(w.docTitle)}</strong>, signed electronically by ${e(w.signerName)}${w.minor ? ` (parent or guardian of ${e(w.fields.name)})` : ''} on ${e(when(w.signedAt))}.
+        ${w.countersign ? `<br>Countersigned for Winning Ranch by ${e(w.countersign.by)} on ${e(when(w.countersign.at))}.` : forStaff ? '<br>Not countersigned by the ranch yet.' : ''}</div>
+      <div class="doc">${html}</div>
+      <h2>Information provided</h2>${sections || '<p>None.</p>'}
+      <h2>Signature</h2>
+      <div class="sig"><table>
+        <tr><th>Signed by</th><td>${e(w.signerName)}${w.minor ? `, parent or guardian of ${e(w.fields.name)}` : ''}</td></tr>
+        <tr><th>Typed signature</th><td>${e(w.typedSignature)}</td></tr>
+        <tr><th>Date and time</th><td>${e(when(w.signedAt))}</td></tr>
+        <tr><th>Agreed to</th><td>Read the whole document and agreed to it; agreed to sign electronically</td></tr>
+        ${forStaff ? `<tr><th>IP address</th><td>${e(w.ip)}</td></tr><tr><th>Device</th><td>${e(w.userAgent)}</td></tr>` : ''}
+        <tr><th>Document version</th><td>${e(w.docVersion)}</td></tr>
+      </table>${sig ? `<img alt="Signature of ${e(w.signerName)}" src="data:image/png;base64,${sig}">` : ''}
+      ${w.countersign ? `<p>Winning Ranch (Management): ${e(w.countersign.by)}, ${e(when(w.countersign.at))}</p>` : ''}</div>
+      </body></html>`;
+  }
+
+  r.get('/waivers/:id/copy', async (req, res) => {
+    const w = db.waivers.find((x) => x.id === req.params.id);
+    if (!w || !req.query.k || sha(req.query.k) !== w.copyKey) return res.status(404).send('This link doesn’t work. Ask the ranch for a copy.');
+    res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: false }));
   });
 
   // ======================================================== auth
@@ -298,6 +439,8 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.get('/stalls', (_req, res) => {
     res.json({
       settings: db.settings,
+      map: MAP,
+      areas: AREAS,
       stalls: db.stalls.map((s) => {
         const h = horseInStall(s.id);
         return { ...publicStall(s), status: s.status, horse: h ? { id: h.id, name: h.name } : null };
@@ -327,12 +470,68 @@ module.exports = function ranchRouter({ dataDir }) {
     res.json({ updated: targets.map((t) => t.id) });
   });
 
+  // ---- pricing board: bulk changes with a history and undo
+  const round2 = (v) => Math.round(v * 100) / 100;
+
+  staff.get('/prices/log', (_req, res) => res.json({ log: db.priceLog.slice(-30).reverse() }));
+
+  staff.post('/prices', async (req, res) => {
+    const b = req.body || {};
+    const field = b.field === 'monthly' || b.field === 'nightly' ? b.field : null;
+    if (!field) return res.status(400).json({ error: 'Pick nightly or monthly.' });
+    const op = ['set', 'add', 'percent', 'clear'].includes(b.op) ? b.op : null;
+    if (!op) return res.status(400).json({ error: 'Unknown change.' });
+    const ids = Array.isArray(b.stallIds) ? [...new Set(b.stallIds.map(String))] : [];
+    const targets = ids.map(stallById).filter(Boolean);
+    if (!targets.length) return res.status(400).json({ error: 'Pick at least one stall.' });
+    const value = Number(b.value);
+    if (op !== 'clear' && (b.value === '' || b.value === null || !Number.isFinite(value))) return res.status(400).json({ error: 'Type a number.' });
+    if (op === 'set' && value < 0) return res.status(400).json({ error: 'Prices can’t be negative.' });
+    if (op === 'set' && value > 100000) return res.status(400).json({ error: 'That price looks too high.' });
+
+    const before = {}, after = {};
+    for (const t of targets) {
+      const cur = t[field];
+      let next;
+      if (op === 'clear') next = null;
+      else if (op === 'set') next = round2(value);
+      else if (cur == null) continue; // nothing to nudge on a stall without a price
+      else if (op === 'add') next = round2(Math.max(0, cur + value));
+      else next = round2(Math.max(0, cur * (1 + value / 100)));
+      if (next === cur) continue;
+      before[t.id] = cur;
+      after[t.id] = next;
+      t[field] = next;
+    }
+    const changed = Object.keys(after);
+    if (!changed.length) return res.json({ changed: [], skipped: targets.length, entry: null });
+    const entry = { id: newId(), at: now(), by: req.user.name, field, op, value: op === 'clear' ? null : value, before, after };
+    db.priceLog.push(entry);
+    if (db.priceLog.length > 500) db.priceLog.splice(0, db.priceLog.length - 500);
+    await store.save();
+    res.json({ changed, skipped: targets.length - changed.length, entry });
+  });
+
+  // Undo is a stack: it always reverts the newest change that isn't undone yet
+  staff.post('/prices/undo', async (req, res) => {
+    const entry = [...db.priceLog].reverse().find((e) => !e.undoneAt);
+    if (!entry) return res.status(400).json({ error: 'Nothing to undo.' });
+    for (const [id, val] of Object.entries(entry.before)) { const t = stallById(id); if (t) t[entry.field] = val; }
+    entry.undoneAt = now();
+    entry.undoneBy = req.user.name;
+    await store.save();
+    res.json({ entry });
+  });
+
   staff.patch('/settings', async (req, res) => {
     const b = req.body || {};
-    for (const k of ['fullCareNightly', 'parkingNightly']) if (k in b) {
+    for (const k of ['parkingNightly', 'monthlyMin', 'monthlyMax']) if (k in b) {
       const v = money(b[k]);
       if (v === undefined) return res.status(400).json({ error: 'Prices must be numbers, like 25 or 25.50.' });
       db.settings[k] = v;
+    }
+    if (db.settings.monthlyMin != null && db.settings.monthlyMax != null && db.settings.monthlyMin > db.settings.monthlyMax) {
+      [db.settings.monthlyMin, db.settings.monthlyMax] = [db.settings.monthlyMax, db.settings.monthlyMin];
     }
     await store.save();
     res.json({ settings: db.settings });
@@ -345,7 +544,7 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!files.length) return res.status(400).json({ error: req.rejected ? 'Only photos (JPG, PNG, WebP) can be added to stalls.' : 'Pick at least one photo.' });
     for (const f of files) s.photos.push({ id: newId(), file: f.filename });
     await store.save();
-    res.status(201).json({ photos: s.photos.map((p) => ({ id: p.id, url: '/api/ranch/files/' + p.file })) });
+    res.status(201).json({ photos: s.photos.map((p) => ({ id: p.id, url: photoUrl(p), builtIn: !!p.builtIn })) });
   });
 
   staff.delete('/stalls/:id/photos/:photoId', async (req, res) => {
@@ -353,7 +552,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const p = s && s.photos.find((x) => x.id === req.params.photoId);
     if (!p) return res.status(404).json({ error: 'Photo not found.' });
     s.photos = s.photos.filter((x) => x !== p);
-    removeFile('public', p.file);
+    if (p.file) removeFile('public', p.file);
     await store.save();
     res.status(204).end();
   });
@@ -483,6 +682,32 @@ module.exports = function ranchRouter({ dataDir }) {
     up.media.forEach((m) => removeFile('private', m.file));
     await store.save();
     res.status(204).end();
+  });
+
+  // ---- signed waivers
+  staff.get('/waivers', (_req, res) => {
+    res.json({
+      docs: DOCS.map((d) => ({ id: d.id, title: d.title })),
+      waivers: db.waivers.slice().sort((a, b) => b.signedAt.localeCompare(a.signedAt)).map((w) => ({
+        id: w.id, docId: w.docId, docTitle: w.docTitle, signedAt: w.signedAt,
+        name: w.fields.name || '', signerName: w.signerName, minor: w.minor,
+        email: w.fields.email || '', phone: w.fields.cell || '', horse: w.fields.horseName || '',
+        countersign: w.countersign,
+      })),
+    });
+  });
+
+  staff.get('/waivers/:id/print', async (req, res) => {
+    const w = db.waivers.find((x) => x.id === req.params.id);
+    if (!w) return res.status(404).send('Not found');
+    res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: true }));
+  });
+
+  staff.post('/waivers/:id/countersign', async (req, res) => {
+    const w = db.waivers.find((x) => x.id === req.params.id);
+    if (!w) return res.status(404).json({ error: 'Waiver not found.' });
+    if (!w.countersign) { w.countersign = { by: req.user.name, at: now() }; await store.save(); }
+    res.json({ countersign: w.countersign });
   });
 
   return r;

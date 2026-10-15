@@ -33,7 +33,7 @@
     const name = (hash.match(/^#\/(\w+)/) || [])[1] || 'post';
     tabs.querySelectorAll('a').forEach((a) => { if (a.getAttribute('href') === '#/' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     refreshPending();
-    const views = { post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, stalls: stallsView };
+    const views = { post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), stalls: stallsView, waivers: waiversView };
     try { await (views[name] || postView)(); } catch (ex) {
       if (ex.status === 401) { user = null; return route(); }
       root.innerHTML = `<div class="wrap"><div class="empty-box"><h2>That didn’t load</h2><p>${esc(ex.message)}</p></div></div>`;
@@ -352,6 +352,8 @@
   // ================================================================ STALLS
   let openStall = null;
   async function stallsView() {
+    const fromPricing = sessionStorage.getItem('wr-open-stall');
+    if (fromPricing) { openStall = fromPricing; sessionStorage.removeItem('wr-open-stall'); }
     loading();
     const { stalls, settings } = await api('GET', '/admin/stalls');
     const groups = [['main', 'Main barn'], ['outdoor', 'Outdoor stalls']];
@@ -359,39 +361,32 @@
       <div class="stall-row" data-id="${s.id}">
         <button type="button" data-toggle-row aria-expanded="${openStall === s.id}">
           <strong>${esc(s.name)}${s.smaller ? ' <small class="muted">(smaller)</small>' : ''}</strong>
-          <span class="hide-sm">${s.nightly != null ? money(s.nightly) + ' / night' : '<span class="tbd">no price</span>'}</span>
+          <span class="hide-sm">${s.nightly != null ? money(s.nightly) + ' / night' : '<span class="tbd">no nightly price</span>'}</span>
           <span class="hide-sm">${s.photos.length} photo${s.photos.length === 1 ? '' : 's'}</span>
           <span>${s.horse ? esc(s.horse.name) : s.status === 'unavailable' ? 'Not in use' : 'Open'}</span>
         </button>
         ${openStall === s.id ? `
         <div class="stall-row__edit">
           <form class="form-grid" data-stall-form="${s.id}" novalidate>
-            <div class="field"><label>Per night ($)</label><input name="nightly" inputmode="decimal" value="${s.nightly ?? ''}" placeholder="45"></div>
-            <div class="field"><label>Per month ($)</label><input name="monthly" inputmode="decimal" value="${s.monthly ?? ''}" placeholder="650"></div>
-            <div class="field"><label>Size</label><input name="size" value="${esc(s.size)}" placeholder="12 x 12 ft"></div>
+            <p class="full muted" style="margin:0">Prices live on the <a class="textlink" href="#/pricing">Pricing board</a>.</p>
+            <div class="field"><label>Size</label><input name="size" value="${esc(s.size)}" placeholder="12' x 24'"></div>
             <div class="field"><label>Status</label><select name="status"><option value="available"${s.status === 'available' ? ' selected' : ''}>In use</option><option value="unavailable"${s.status === 'unavailable' ? ' selected' : ''}>Not in use</option></select></div>
             <div class="field full"><label>Description</label><textarea name="description" rows="2">${esc(s.description)}</textarea></div>
-            <label class="choice full"><input type="checkbox" name="applyToGroup"><span>Use this price and size for every ${s.group === 'main' ? 'main barn' : 'outdoor'} stall${s.smaller ? ' like this one (smaller)' : s.group === 'main' ? ' (except the smaller one)' : ''}</span></label>
+            <label class="choice full"><input type="checkbox" name="applyToGroup"><span>Use this size for every ${s.group === 'main' ? 'main barn' : 'outdoor'} stall${s.smaller ? ' like this one (smaller)' : s.group === 'main' ? ' (except the smaller one)' : ''}</span></label>
             <p class="inline-error full" data-err></p>
             <div class="form-actions full"><button class="btn btn--red btn--sm" type="submit">Save stall</button></div>
           </form>
           <h3 style="font-size:1.1rem;margin:22px 0 4px">Photos</h3>
           <p class="muted" style="margin:0">They show up when visitors hover or tap this stall on the map.</p>
-          <div class="photo-strip">${s.photos.map((p) => `<figure><img src="${esc(p.url)}" alt=""><button type="button" data-del-photo="${p.id}" aria-label="Delete photo">&times;</button></figure>`).join('')}</div>
+          <div class="photo-strip">${s.photos.map((p) => `<figure><img src="${esc(p.url)}" alt="">${p.builtIn ? '<figcaption>Barn photo</figcaption>' : ''}<button type="button" data-del-photo="${p.id}" aria-label="Remove photo">&times;</button></figure>`).join('')}</div>
           <label class="uploader" style="padding:14px"><input type="file" accept="image/*" multiple data-add-photos><strong>Add photos</strong></label>
         </div>` : ''}
       </div>`;
 
     root.innerHTML = `
       <div class="wrap">
-        <h1>Stalls &amp; prices</h1>
-        <form class="panel form-grid" id="settings-form" novalidate>
-          <h2 class="full" style="margin:0">Add-ons</h2>
-          <div class="field"><label>Full care, per horse per night ($)</label><input name="fullCareNightly" inputmode="decimal" value="${settings.fullCareNightly ?? ''}"></div>
-          <div class="field"><label>Trailer or RV spot, per night ($)</label><input name="parkingNightly" inputmode="decimal" value="${settings.parkingNightly ?? ''}"></div>
-          <p class="inline-error full" data-err></p>
-          <div class="form-actions full"><button class="btn btn--sm" type="submit">Save add-on prices</button></div>
-        </form>
+        <h1>Stalls</h1>
+        <p class="muted">Photos, size, status and description of each stall. Prices are on the <a class="textlink" href="#/pricing">Pricing board</a>.</p>
         ${groups.map(([g, title]) => `<section class="panel"><h2>${title}</h2><div class="stall-rows">${stalls.filter((s) => s.group === g).sort((a, b) => a.number - b.number).map(row).join('')}</div></section>`).join('')}
       </div>`;
 
@@ -399,7 +394,7 @@
       const t = e.target.closest('[data-toggle-row]');
       if (t) { const id = t.closest('.stall-row').dataset.id; openStall = openStall === id ? null : id; return stallsView(); }
       const del = e.target.closest('[data-del-photo]');
-      if (del && confirm('Delete this photo?')) {
+      if (del && confirm('Remove this photo from the stall?')) {
         try { await api('DELETE', `/admin/stalls/${del.closest('.stall-row').dataset.id}/photos/${del.dataset.delPhoto}`); stallsView(); } catch (ex) { toast(ex.message); }
       }
     };
@@ -418,16 +413,80 @@
       err.textContent = '';
       const fd = Object.fromEntries(new FormData(f));
       try {
-        if (f.id === 'settings-form') {
-          await api('PATCH', '/admin/settings', fd);
-          toast('Add-on prices saved');
-        } else {
-          const body = { ...fd, applyToGroup: f.applyToGroup.checked };
-          const res = await api('PATCH', '/admin/stalls/' + f.dataset.stallForm, body);
-          toast(res.updated.length > 1 ? `Saved for ${res.updated.length} stalls` : 'Stall saved');
-          stallsView();
-        }
+        const body = { size: fd.size, status: fd.status, description: fd.description, applyToGroup: f.applyToGroup.checked };
+        const res = await api('PATCH', '/admin/stalls/' + f.dataset.stallForm, body);
+        toast(res.updated.length > 1 ? `Size saved for ${res.updated.length} stalls` : 'Stall saved');
+        stallsView();
       } catch (ex) { err.textContent = ex.message; }
+    };
+  }
+
+
+  // ================================================================ WAIVERS
+  let waiverDoc = 'all';
+  let waiverQuery = '';
+  async function waiversView() {
+    loading();
+    const { docs, waivers } = await api('GET', '/admin/waivers');
+    const count = (id) => waivers.filter((w) => id === 'all' || w.docId === id).length;
+    const signBase = `${location.origin}/ranch/sign.html?doc=`;
+    root.innerHTML = `
+      <div class="wrap">
+        <h1>Waivers</h1>
+        <p class="muted">Everything signed online, newest first. Open a signed copy to print it or save it as a PDF.</p>
+        <div class="toolbar-row">
+          <input type="search" id="w-q" class="search" placeholder="Search name, email, phone or horse" value="${esc(waiverQuery)}" aria-label="Search waivers">
+        </div>
+        <div class="toolbar-row" role="group" aria-label="Document">
+          ${[{ id: 'all', title: 'All' }, ...docs].map((d) => `<button class="chip" data-doc="${d.id}" aria-pressed="${waiverDoc === d.id}">${esc(d.title)} (${count(d.id)})</button>`).join('')}
+        </div>
+        <div class="cards" id="w-list"></div>
+        <section class="panel" style="margin-top:24px">
+          <h2>Send a signing link</h2>
+          <p class="muted">Text or email it so people sign before they arrive. It opens the document ready to sign.</p>
+          <div class="cards">${docs.map((d) => `
+            <div class="card link-row"><strong>${esc(d.title)}</strong>
+              <div class="btn-row"><button class="btn btn--sm btn--red" type="button" data-copy-link="${esc(signBase + d.id)}">Copy link</button>
+              <a class="btn btn--sm btn--ghost" href="sms:?&body=${encodeURIComponent(`Please sign the Winning Ranch ${d.title.toLowerCase()} before you arrive: ${signBase + d.id}`)}">Text it</a></div></div>`).join('')}</div>
+        </section>
+      </div>`;
+
+    function drawList() {
+      const q = waiverQuery.trim().toLowerCase();
+      const shown = waivers.filter((w) => (waiverDoc === 'all' || w.docId === waiverDoc)
+        && (!q || [w.name, w.signerName, w.email, w.phone, w.horse].join(' ').toLowerCase().includes(q)));
+      $('#w-list', root).innerHTML = shown.length ? shown.map((w) => `
+        <article class="card" data-id="${w.id}">
+          <div class="card__top"><h3>${esc(w.name || w.signerName)}</h3>
+            <span class="status ${w.countersign ? 'status--confirmed' : 'status--pending'}">${w.countersign ? 'Countersigned' : 'Needs countersign'}</span>
+            <span class="muted">${esc(w.docTitle)}, ${esc(timeAgo(w.signedAt))}</span></div>
+          <dl>
+            ${w.minor ? `<dt>Signed by</dt><dd>${esc(w.signerName)}, parent or guardian</dd>` : ''}
+            ${w.horse ? `<dt>Horse</dt><dd>${esc(w.horse)}</dd>` : ''}
+            <dt>Contact</dt><dd>${w.phone ? `<a href="tel:${esc(w.phone)}">${esc(w.phone)}</a>` : ''}${w.phone && w.email ? ', ' : ''}${w.email ? `<a href="mailto:${esc(w.email)}">${esc(w.email)}</a>` : ''}</dd>
+            ${w.countersign ? `<dt>Countersigned</dt><dd>${esc(w.countersign.by)}, ${esc(fmtDay(w.countersign.at))}</dd>` : ''}
+          </dl>
+          <div class="btn-row">
+            <a class="btn btn--sm btn--red" href="/api/ranch/admin/waivers/${w.id}/print" target="_blank" rel="noopener">Open signed copy</a>
+            ${w.countersign ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-countersign>Countersign for the ranch</button>'}
+          </div>
+        </article>`).join('')
+        : `<div class="empty-box"><h2>${waivers.length ? 'No matches' : 'Nothing signed yet'}</h2><p>${waivers.length ? 'Try another name or clear the search.' : 'When someone signs on the website, it shows up here.'}</p></div>`;
+    }
+    drawList();
+
+    $('#w-q', root).addEventListener('input', (e) => { waiverQuery = e.target.value; drawList(); });
+    root.onclick = async (e) => {
+      const d = e.target.closest('[data-doc]');
+      if (d) { waiverDoc = d.dataset.doc; return waiversView(); }
+      const cp = e.target.closest('[data-copy-link]');
+      if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copyLink); toast('Link copied'); } catch { toast(cp.dataset.copyLink); } return; }
+      const cs = e.target.closest('[data-countersign]');
+      if (cs) {
+        const card = cs.closest('.card');
+        if (!confirm('Countersign this document for Winning Ranch? Your name and today’s date go on the signed copy.')) return;
+        try { await api('POST', `/admin/waivers/${card.dataset.id}/countersign`); toast('Countersigned'); waiversView(); } catch (ex) { toast(ex.message); }
+      }
     };
   }
 

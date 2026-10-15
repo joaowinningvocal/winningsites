@@ -29,9 +29,9 @@ button { cursor: pointer; }
 
 /* ---------- Top bar ---------- */
 .bar {
-  height: var(--bar-h); background: var(--bar); color: var(--bar-text);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 0 12px 0 16px; position: relative; z-index: 20;
+  min-height: 56px; background: var(--bar); color: var(--bar-text);
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px;
+  padding: 8px 12px 8px 16px; position: relative; z-index: 20;
 }
 .bar__group { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .bar__title { font-weight: 650; letter-spacing: .01em; margin-right: 6px; white-space: nowrap; }
@@ -197,8 +197,16 @@ button { cursor: pointer; }
   .tool kbd { display: none; }
   #lang-btn, .bar__you { display: none; }
 }
+@media (max-width: 600px) {
+  /* Phones: site tabs on the first row; page picker, export and comments on the second */
+  .bar { padding: 8px 10px; }
+  .bar__group:first-child { display: contents; }
+  .tabs { flex: 1 1 100%; }
+  .page-pick { flex: 1 1 auto; min-width: 0; }
+  .page-pick select { max-width: 100%; width: 100%; }
+  .bar__group--end { flex: 0 0 auto; }
+}
 @media (max-width: 560px) {
-  .page-pick select { max-width: 120px; }
   .tab { padding: 6px 8px; }
   .canvas { padding: 8px 8px 76px; }
 }

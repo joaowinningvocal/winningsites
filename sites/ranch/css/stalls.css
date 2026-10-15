@@ -171,3 +171,4 @@ body.has-tray .quickbar { display: none; }
   .peek, .peek.is-on { transform: none !important; }
   .peek.is-on .peek__media .zoom, .peek.is-on .peek__media img.is-current { animation: none; }
 }
+.peek__month { margin: 2px 0 0; font-size: .95rem; color: var(--dust); }
