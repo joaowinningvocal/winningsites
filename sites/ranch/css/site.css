@@ -436,3 +436,12 @@ h3 { font-size: 1.45rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* Real photo in the hero: keep both horses clear of the red slash */
 .hero__panel .photo img { object-position: 40% 45%; }
+
+/* Amenities */
+.amenities { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; border-top: 3px solid var(--ink); }
+.amenities li { padding: 24px 0 26px; border-bottom: 1px solid var(--line); }
+.amenity__tag { display: block; font-size: .9rem; font-weight: 600; color: var(--red); margin-bottom: 8px; }
+.amenities h3 { font-size: 1.3rem; margin-bottom: .35em; }
+.amenities p { margin: 0; color: var(--dust); }
+@media (max-width: 900px) { .amenities { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .amenities { grid-template-columns: 1fr; } }
