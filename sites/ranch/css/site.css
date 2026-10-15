@@ -445,3 +445,17 @@ h3 { font-size: 1.45rem; }
 .amenities p { margin: 0; color: var(--dust); }
 @media (max-width: 900px) { .amenities { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .amenities { grid-template-columns: 1fr; } }
+
+/* Free recovery equipment */
+.free-gear { margin-top: clamp(40px, 6vw, 64px); }
+.free-gear__title { font-size: clamp(1.5rem, 2.6vw, 2rem); margin-bottom: 18px; }
+.gear { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; }
+.gear__card { background: var(--paper); border: 1px solid var(--line); display: flex; flex-direction: column; }
+.gear__media { position: relative; background: #fff; height: clamp(260px, 30vw, 380px); display: grid; place-items: center; padding: 18px; border-bottom: 4px solid var(--red); }
+.gear__media > img:first-child { position: absolute; top: 16px; left: 16px; width: calc(100% - 32px); height: calc(100% - 32px); max-width: none; object-fit: contain; }
+.gear__inset { position: absolute; right: 16px; bottom: 16px; width: clamp(82px, 9vw, 120px); height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 6px 18px rgba(14,14,14,.25); }
+.gear__body { padding: 20px 22px 24px; }
+.gear__free { display: inline-block; background: var(--ink); color: var(--on-ink); font-size: .85rem; font-weight: 600; padding: 3px 10px; margin-bottom: 10px; }
+.gear__body h4 { font: 600 1.35rem/1.15 var(--display); margin: 0 0 .4em; }
+.gear__body p { margin: 0; color: var(--dust); }
+@media (max-width: 860px) { .gear { grid-template-columns: 1fr; } }
