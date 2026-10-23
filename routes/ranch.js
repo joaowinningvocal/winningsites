@@ -29,6 +29,7 @@ module.exports = function ranchRouter({ dataDir }) {
     horses: [],
     updates: [],
     seq: { booking: 1000 },
+    contacts: [],
     priceLog: [],
     waivers: [],
     docVersions: {},
@@ -44,7 +45,7 @@ module.exports = function ranchRouter({ dataDir }) {
   if (!db.stalls.length) { db.stalls = seedStalls(); store.save(); }
 
   // ---------------------------------------------------------- one-time data updates for existing installs
-  const BARN_PHOTO = '/ranch/img/photos/barn-stalls.jpg';
+  const BARN_PHOTO = '/img/photos/barn-stalls.jpg';
   const migrations = {
     // Shapes now come from lib/ranch-layout.js, not the database
     'layout-from-code': () => db.stalls.forEach((st) => { delete st.shape; }),
@@ -57,6 +58,15 @@ module.exports = function ranchRouter({ dataDir }) {
       delete db.settings.fullCareNightly; // rates now include full care
     },
     // Real photo of the barn stalls on every main-barn stall in use
+    // Everything moved from /ranch/... to the root of the site
+    'root-paths': () => db.stalls.forEach((st) => st.photos.forEach((ph) => { if (ph.url && ph.url.startsWith('/ranch/')) ph.url = ph.url.slice(6); })),
+    // Contact-form messages used to live in the preview tool's file
+    'contacts-from-review': () => {
+      try {
+        const old = JSON.parse(fs.readFileSync(path.join(dataDir, 'review.json'), 'utf8'));
+        (old.contacts || []).forEach((c) => { if (!db.contacts.some((x) => x.id === c.id)) db.contacts.push(c); });
+      } catch (_) { /* nothing to import */ }
+    },
     'barn-photo': () => db.stalls.forEach((st) => {
       if (st.group === 'main' && st.status === 'available' && !st.photos.some((ph) => ph.url === BARN_PHOTO)) {
         st.photos.unshift({ id: crypto.randomBytes(8).toString('hex'), url: BARN_PHOTO, builtIn: true });
@@ -226,7 +236,7 @@ module.exports = function ranchRouter({ dataDir }) {
 
 
   // ======================================================== waivers signed online
-  const docsDir = path.join(__dirname, '..', 'sites', 'ranch', 'docs');
+  const docsDir = path.join(__dirname, '..', 'public', 'docs');
   const docHtml = (id) => { try { return fs.readFileSync(path.join(docsDir, path.basename(id) + '.html'), 'utf8'); } catch (_) { return ''; } };
   const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
   const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -330,6 +340,20 @@ module.exports = function ranchRouter({ dataDir }) {
     const w = db.waivers.find((x) => x.id === req.params.id);
     if (!w || w.deletedAt || !req.query.k || sha(req.query.k) !== w.copyKey) return res.status(404).send('This link doesn’t work. Ask the ranch for a copy.');
     res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: false }));
+  });
+
+  // ======================================================== contact form (website)
+  r.post('/contact', rateLimit({ limit: 10, windowMs: 60 * 60e3 }), async (req, res) => {
+    const b = req.body || {};
+    const entry = {
+      id: newId(), firstName: str(b.firstName, 80), lastName: str(b.lastName, 80), phone: str(b.phone, 40),
+      email: str(b.email, 160), topic: str(b.topic, 40), message: str(b.message, 5000), createdAt: now(),
+    };
+    if (!entry.firstName || !validEmail(entry.email)) return res.status(400).json({ error: 'Name and a valid email are required.' });
+    db.contacts.push(entry);
+    await store.save();
+    notify('contact', entry);
+    res.status(201).json({ ok: true });
   });
 
   // ======================================================== auth
@@ -587,14 +611,14 @@ module.exports = function ranchRouter({ dataDir }) {
     db.users.push(user);
     await store.save();
     const t = auth.createInvite(user);
-    res.status(201).json({ user: auth.publicUser(user), inviteUrl: `${origin(req)}/ranch/${role === 'staff' ? 'admin' : 'portal'}/#/invite/${t}` });
+    res.status(201).json({ user: auth.publicUser(user), inviteUrl: `${origin(req)}/#/invite/${t}` });
   });
 
   staff.post('/users/:id/invite', (req, res) => {
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Person not found.' });
     const t = auth.createInvite(user);
-    res.json({ inviteUrl: `${origin(req)}/ranch/${user.role === 'staff' ? 'admin' : 'portal'}/#/invite/${t}` });
+    res.json({ inviteUrl: `${origin(req)}/#/invite/${t}` });
   });
 
   staff.patch('/users/:id', async (req, res) => {
@@ -741,6 +765,9 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!w.countersign) { w.countersign = { by: req.user.name, at: now() }; await store.save(); }
     res.json({ countersign: w.countersign });
   });
+
+  // ---- contact-form messages
+  staff.get('/contacts', (_req, res) => res.json({ contacts: db.contacts.slice().reverse() }));
 
   // ---- time clock (shift, hours, reports)
   require('./shifts')({ staff, db, store, newId, now, str });

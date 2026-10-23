@@ -1,8 +1,8 @@
 {
-  "name": "winning-sites",
+  "name": "winning-ranch",
   "version": "1.0.0",
   "private": true,
-  "description": "Winning Ranch + Winning Realty site drafts with a built-in review tool (pins, arrows, highlights, comments).",
+  "description": "Winning Ranch: web-app for owners and the ranch team, website, stall booking, waivers and dashboard.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
