@@ -35,6 +35,10 @@
       {
         "path": "/admin/",
         "title": "Staff app"
+      },
+      {
+        "path": "/app/",
+        "title": "Ranch app (POC)"
       }
     ]
   },

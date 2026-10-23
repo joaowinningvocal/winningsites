@@ -328,7 +328,7 @@ module.exports = function ranchRouter({ dataDir }) {
 
   r.get('/waivers/:id/copy', async (req, res) => {
     const w = db.waivers.find((x) => x.id === req.params.id);
-    if (!w || !req.query.k || sha(req.query.k) !== w.copyKey) return res.status(404).send('This link doesn’t work. Ask the ranch for a copy.');
+    if (!w || w.deletedAt || !req.query.k || sha(req.query.k) !== w.copyKey) return res.status(404).send('This link doesn’t work. Ask the ranch for a copy.');
     res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: false }));
   });
 
@@ -407,6 +407,14 @@ module.exports = function ranchRouter({ dataDir }) {
   // ======================================================== staff
   const staff = express.Router();
   staff.use(auth.requireStaff);
+
+  // Ranch hands only get their shift and posting updates; everything else is for managers and office
+  const HAND_ALLOWED = [/^GET \/horses$/, /^POST \/updates$/, /^(GET|POST|PATCH) \/shift(\/[\w-]+)?$/];
+  staff.use((req, res, next) => {
+    if ((req.user.position || 'office') !== 'hand') return next();
+    if (HAND_ALLOWED.some((rx) => rx.test(`${req.method} ${req.path}`))) return next();
+    res.status(403).json({ error: 'Ask a manager for access to this.' });
+  });
   r.use('/admin', staff);
 
   // ---- bookings
@@ -571,10 +579,11 @@ module.exports = function ranchRouter({ dataDir }) {
     const b = req.body || {};
     const name = str(b.name, 100), email = str(b.email, 160).toLowerCase(), phone = str(b.phone, 40);
     const role = b.role === 'staff' ? 'staff' : 'owner';
+    const position = role === 'staff' ? (['hand', 'manager', 'office'].includes(b.position) ? b.position : 'office') : undefined;
     if (!name) return res.status(400).json({ error: 'Add a name.' });
     if (!validEmail(email)) return res.status(400).json({ error: 'Add a valid email. It’s what they log in with.' });
     if (db.users.some((u) => u.email === email)) return res.status(409).json({ error: 'Someone already has that email.' });
-    const user = { id: newId(), name, email, phone, role, password: null, active: true, createdAt: now() };
+    const user = { id: newId(), name, email, phone, role, position, password: null, active: true, createdAt: now() };
     db.users.push(user);
     await store.save();
     const t = auth.createInvite(user);
@@ -599,6 +608,11 @@ module.exports = function ranchRouter({ dataDir }) {
       if (!validEmail(v)) return res.status(400).json({ error: 'Add a valid email.' });
       if (db.users.some((u) => u.email === v && u.id !== user.id)) return res.status(409).json({ error: 'Someone already has that email.' });
       user.email = v;
+    }
+    if ('position' in b && user.role === 'staff') {
+      if (!['hand', 'manager', 'office'].includes(b.position)) return res.status(400).json({ error: 'Unknown position.' });
+      if (user.id === req.user.id && b.position === 'hand') return res.status(400).json({ error: 'You can’t remove your own manager access.' });
+      user.position = b.position;
     }
     if ('active' in b) {
       if (user.id === req.user.id && b.active === false) return res.status(400).json({ error: 'You can’t turn off your own access.' });
@@ -688,11 +702,12 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.get('/waivers', (_req, res) => {
     res.json({
       docs: DOCS.map((d) => ({ id: d.id, title: d.title })),
-      waivers: db.waivers.slice().sort((a, b) => b.signedAt.localeCompare(a.signedAt)).map((w) => ({
+      deleted: db.waivers.filter((w) => w.deletedAt).length,
+      waivers: db.waivers.filter((w) => (_req.query.deleted === '1' ? w.deletedAt : !w.deletedAt)).sort((a, b) => b.signedAt.localeCompare(a.signedAt)).map((w) => ({
         id: w.id, docId: w.docId, docTitle: w.docTitle, signedAt: w.signedAt,
         name: w.fields.name || '', signerName: w.signerName, minor: w.minor,
         email: w.fields.email || '', phone: w.fields.cell || '', horse: w.fields.horseName || '',
-        countersign: w.countersign,
+        countersign: w.countersign, deletedAt: w.deletedAt, deletedBy: w.deletedBy, deleteReason: w.deleteReason,
       })),
     });
   });
@@ -703,12 +718,35 @@ module.exports = function ranchRouter({ dataDir }) {
     res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: true }));
   });
 
+  // Deleting hides a signed document (for test runs or ones filled out wrong). It can be restored.
+  staff.delete('/waivers/:id', async (req, res) => {
+    const w = db.waivers.find((x) => x.id === req.params.id && !x.deletedAt);
+    if (!w) return res.status(404).json({ error: 'Waiver not found.' });
+    w.deletedAt = now(); w.deletedBy = req.user.name; w.deleteReason = str(req.body && req.body.reason, 300);
+    await store.save();
+    res.status(204).end();
+  });
+
+  staff.post('/waivers/:id/restore', async (req, res) => {
+    const w = db.waivers.find((x) => x.id === req.params.id && x.deletedAt);
+    if (!w) return res.status(404).json({ error: 'Waiver not found.' });
+    delete w.deletedAt; delete w.deletedBy; delete w.deleteReason;
+    await store.save();
+    res.json({ ok: true });
+  });
+
   staff.post('/waivers/:id/countersign', async (req, res) => {
     const w = db.waivers.find((x) => x.id === req.params.id);
     if (!w) return res.status(404).json({ error: 'Waiver not found.' });
     if (!w.countersign) { w.countersign = { by: req.user.name, at: now() }; await store.save(); }
     res.json({ countersign: w.countersign });
   });
+
+  // ---- time clock (shift, hours, reports)
+  require('./shifts')({ staff, db, store, newId, now, str });
+
+  // ---- app: messages and the home screen
+  require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById });
 
   return r;
 };

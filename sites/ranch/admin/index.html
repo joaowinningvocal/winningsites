@@ -27,19 +27,23 @@
 <nav class="tabs-nav" id="tabs" aria-label="Staff sections" hidden>
   <div class="wrap">
     <ul>
-      <li><a href="#/post">Post update</a></li>
-      <li><a href="#/bookings">Bookings <b id="pending-count"></b></a></li>
-      <li><a href="#/horses">Horses</a></li>
-      <li><a href="#/people">People</a></li>
-      <li><a href="#/pricing">Pricing</a></li>
-      <li><a href="#/stalls">Stalls</a></li>
-      <li><a href="#/waivers">Waivers</a></li>
+      <li data-roles="hand manager"><a href="#/shift">My shift</a></li>
+      <li data-roles="hand manager office"><a href="#/post">Post update</a></li>
+      <li data-roles="manager office"><a href="#/bookings">Bookings <b id="pending-count"></b></a></li>
+      <li data-roles="manager office"><a href="#/hours">Hours</a></li>
+      <li data-roles="manager office"><a href="#/horses">Horses</a></li>
+      <li data-roles="manager office"><a href="#/people">People</a></li>
+      <li data-roles="manager office"><a href="#/pricing">Pricing</a></li>
+      <li data-roles="manager office"><a href="#/stalls">Stalls</a></li>
+      <li data-roles="manager office"><a href="#/waivers">Waivers</a></li>
     </ul>
   </div>
 </nav>
 <main class="app-main" id="app" aria-live="polite"></main>
 <script src="../js/app-common.js"></script>
 <script src="../js/admin-pricing.js"></script>
+<script src="../js/admin-shift.js"></script>
+<script src="../js/admin-hours.js"></script>
 <script src="../js/admin.js"></script>
 </body>
 </html>

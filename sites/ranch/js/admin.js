@@ -10,7 +10,8 @@
 
   async function route() {
     resetHandlers();
-    const hash = location.hash || '#/post';
+    if (window.WRShift) window.WRShift.stop();
+    const hash = location.hash || '';
     const invite = hash.match(/^#\/invite\/(.+)$/);
     if (invite) {
       tabs.hidden = true;
@@ -30,10 +31,14 @@
       });
     }
     tabs.hidden = false; $('#logout').hidden = false; $('#portal-link').hidden = false;
-    const name = (hash.match(/^#\/(\w+)/) || [])[1] || 'post';
+    const pos = user.position || 'office';
+    tabs.querySelectorAll('li[data-roles]').forEach((li) => { li.hidden = !li.dataset.roles.split(' ').includes(pos); });
+    const allowed = [...tabs.querySelectorAll('li[data-roles]')].filter((li) => !li.hidden).map((li) => li.querySelector('a').getAttribute('href').slice(2));
+    let name = (hash.match(/^#\/(\w+)/) || [])[1];
+    if (!name || !allowed.includes(name)) name = pos === 'office' ? 'post' : 'shift';
     tabs.querySelectorAll('a').forEach((a) => { if (a.getAttribute('href') === '#/' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    refreshPending();
-    const views = { post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), stalls: stallsView, waivers: waiversView };
+    if (pos !== 'hand') refreshPending();
+    const views = { shift: () => window.WRShift.view(root), hours: () => window.WRHours.view(root), post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), stalls: stallsView, waivers: waiversView };
     try { await (views[name] || postView)(); } catch (ex) {
       if (ex.status === 401) { user = null; return route(); }
       root.innerHTML = `<div class="wrap"><div class="empty-box"><h2>That didn’t load</h2><p>${esc(ex.message)}</p></div></div>`;
@@ -305,16 +310,18 @@
             <div class="field"><label>Email</label><input name="email" type="email" required></div>
             <div class="field"><label>Phone</label><input name="phone" type="tel"></div>
             <div class="field"><label>Role</label><select name="role"><option value="owner">Horse owner</option><option value="staff">Ranch team</option></select></div>
+            <div class="field"><label>Position (ranch team)</label><select name="position"><option value="hand">Ranch hand: shift, checklist, posts updates</option><option value="manager">Ranch manager: everything, clocks in</option><option value="office" selected>Office: everything, no time clock</option></select></div>
             <p class="inline-error full" data-err></p>
             <div class="form-actions full"><button class="btn btn--red btn--sm" type="submit">Add and get login link</button><button class="btn btn--sm btn--ghost" type="button" data-cancel>Cancel</button></div>
             <div class="full" id="new-invite"></div>
           </form>` : '<p><button class="btn btn--red" data-add>Add a person</button></p>'}
         <div class="cards" style="margin-top:18px">${users.map((u) => `
           <article class="card" data-id="${u.id}" data-name="${esc(u.name)}">
-            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? 'Ranch team' : 'Owner'}</span>
+            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[u.position] || 'Ranch team') : 'Owner'}</span>
               ${!u.active ? '<span class="status status--cancelled">Access off</span>' : !u.hasPassword ? '<span class="status status--invite">Hasn’t logged in yet</span>' : ''}</div>
             <dl><dt>Email</dt><dd>${esc(u.email)}</dd>${u.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(u.phone)}">${esc(u.phone)}</a></dd>` : ''}${u.role === 'owner' ? `<dt>Horses</dt><dd>${esc(u.horses.join(', ') || 'None yet')}</dd>` : ''}</dl>
             <div class="btn-row"><button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>
+              ${u.role === 'staff' && u.id !== user.id ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[p]}</option>`).join('')}</select>` : ''}
               ${u.id !== user.id ? `<button class="btn btn--sm btn--ghost" data-toggle="${u.active ? 0 : 1}">${u.active ? 'Turn off access' : 'Turn on access'}</button>` : ''}</div>
             <div data-invite-box></div>
           </article>`).join('')}</div>
@@ -335,6 +342,11 @@
         if (tg.dataset.toggle === '0' && !confirm('Turn off this person’s access? They’re logged out right away.')) return;
         try { await api('PATCH', '/admin/users/' + card.dataset.id, { active: tg.dataset.toggle === '1' }); peopleView(); } catch (ex) { toast(ex.message); }
       }
+    };
+    root.onchange = async (e) => {
+      const sel = e.target.closest('[data-position]');
+      if (!sel) return;
+      try { await api('PATCH', '/admin/users/' + sel.closest('.card').dataset.id, { position: sel.value }); toast('Position updated'); peopleView(); } catch (ex) { toast(ex.message); }
     };
     root.onsubmit = async (e) => {
       e.preventDefault();
@@ -427,7 +439,7 @@
   let waiverQuery = '';
   async function waiversView() {
     loading();
-    const { docs, waivers } = await api('GET', '/admin/waivers');
+    const { docs, waivers, deleted } = await api('GET', `/admin/waivers${waiverDoc === 'deleted' ? '?deleted=1' : ''}`);
     const count = (id) => waivers.filter((w) => id === 'all' || w.docId === id).length;
     const signBase = `${location.origin}/ranch/sign.html?doc=`;
     root.innerHTML = `
@@ -438,7 +450,8 @@
           <input type="search" id="w-q" class="search" placeholder="Search name, email, phone or horse" value="${esc(waiverQuery)}" aria-label="Search waivers">
         </div>
         <div class="toolbar-row" role="group" aria-label="Document">
-          ${[{ id: 'all', title: 'All' }, ...docs].map((d) => `<button class="chip" data-doc="${d.id}" aria-pressed="${waiverDoc === d.id}">${esc(d.title)} (${count(d.id)})</button>`).join('')}
+          ${waiverDoc === 'deleted' ? '<button class="chip" data-doc="all" aria-pressed="false">Back to signed documents</button><button class="chip" aria-pressed="true">Deleted (' + waivers.length + ')</button>'
+            : [{ id: 'all', title: 'All' }, ...docs].map((d) => `<button class="chip" data-doc="${d.id}" aria-pressed="${waiverDoc === d.id}">${esc(d.title)} (${count(d.id)})</button>`).join('') + (deleted ? `<button class="chip" data-doc="deleted" aria-pressed="false">Deleted (${deleted})</button>` : '')}
         </div>
         <div class="cards" id="w-list"></div>
         <section class="panel" style="margin-top:24px">
@@ -453,7 +466,7 @@
 
     function drawList() {
       const q = waiverQuery.trim().toLowerCase();
-      const shown = waivers.filter((w) => (waiverDoc === 'all' || w.docId === waiverDoc)
+      const shown = waivers.filter((w) => (waiverDoc === 'all' || waiverDoc === 'deleted' || w.docId === waiverDoc)
         && (!q || [w.name, w.signerName, w.email, w.phone, w.horse].join(' ').toLowerCase().includes(q)));
       $('#w-list', root).innerHTML = shown.length ? shown.map((w) => `
         <article class="card" data-id="${w.id}">
@@ -468,7 +481,8 @@
           </dl>
           <div class="btn-row">
             <a class="btn btn--sm btn--red" href="/api/ranch/admin/waivers/${w.id}/print" target="_blank" rel="noopener">Open signed copy</a>
-            ${w.countersign ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-countersign>Countersign for the ranch</button>'}
+            ${w.deletedAt ? `<button class="btn btn--sm" type="button" data-restore>Restore</button><span class="muted">Deleted by ${esc(w.deletedBy)}${w.deleteReason ? `: ${esc(w.deleteReason)}` : ''}</span>`
+              : `${w.countersign ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-countersign>Countersign for the ranch</button>'}<button class="btn btn--sm btn--ghost btn--danger" type="button" data-delete>Delete</button>`}
           </div>
         </article>`).join('')
         : `<div class="empty-box"><h2>${waivers.length ? 'No matches' : 'Nothing signed yet'}</h2><p>${waivers.length ? 'Try another name or clear the search.' : 'When someone signs on the website, it shows up here.'}</p></div>`;
@@ -482,6 +496,18 @@
       const cp = e.target.closest('[data-copy-link]');
       if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copyLink); toast('Link copied'); } catch { toast(cp.dataset.copyLink); } return; }
       const cs = e.target.closest('[data-countersign]');
+      const delW = e.target.closest('[data-delete]');
+      if (delW) {
+        const reason = prompt('Delete this signed document? It disappears from the list and the signer’s copy link stops working. You can restore it from Deleted.\n\nReason (optional):', 'Filled out wrong');
+        if (reason === null) return;
+        try { await api('DELETE', `/admin/waivers/${delW.closest('.card').dataset.id}`, { reason }); toast('Deleted. Find it under Deleted to restore it.'); waiversView(); } catch (ex) { toast(ex.message); }
+        return;
+      }
+      const rs = e.target.closest('[data-restore]');
+      if (rs) {
+        try { await api('POST', `/admin/waivers/${rs.closest('.card').dataset.id}/restore`); toast('Restored'); waiversView(); } catch (ex) { toast(ex.message); }
+        return;
+      }
       if (cs) {
         const card = cs.closest('.card');
         if (!confirm('Countersign this document for Winning Ranch? Your name and today’s date go on the signed copy.')) return;

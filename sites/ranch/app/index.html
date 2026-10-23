@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="ranch">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Winning Ranch</title>
+<meta name="theme-color" content="#0E0E0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Winning Ranch">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="../img/favicon.png">
+<link rel="apple-touch-icon" href="../img/apple-touch-icon.png">
+<link rel="preload" href="../fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar" hidden>
+  <div class="topbar__inner">
+    <a class="topbar__logo" href="#/home" aria-label="Home"><img src="../img/logo-horizontal-light.png" alt="Winning Ranch" width="870" height="323"></a>
+    <div class="topbar__right">
+      <button class="icon-btn" id="bell" type="button" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 1 1 12 0v6l1.5 2h-15zM10 21h4"/></svg>
+        <b class="badge" id="bell-badge" hidden></b>
+      </button>
+      <button class="role-chip" id="role-chip" type="button" aria-haspopup="true"><span class="dot"></span><span id="role-text"></span></button>
+    </div>
+  </div>
+  <div class="menu" id="menu" hidden>
+    <p class="menu__who" id="menu-who"></p>
+    <button type="button" data-menu="theme">Dark mode</button>
+    <a href="../">Winning Ranch website</a>
+    <a href="../admin/" id="menu-dash" hidden>Full dashboard</a>
+    <button type="button" data-menu="logout">Log out</button>
+  </div>
+  <div class="notif" id="notif" hidden></div>
+</header>
+
+<main id="view" class="view" aria-live="polite"></main>
+
+<nav class="bottom-nav" id="bottom-nav" hidden aria-label="App">
+  <a href="#/home" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+  <button type="button" class="fab" id="fab" hidden aria-label="Post an update">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+  </button>
+  <a href="#/messages" data-nav="messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H11l-5 4v-4H4z"/></svg><span>Messages</span><b class="nav-dot" id="nav-dot" hidden></b></a>
+</nav>
+
+<dialog class="sheet" id="sheet"></dialog>
+<dialog class="lightbox" id="lightbox"><button type="button" aria-label="Close">&times;</button><img alt=""></dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

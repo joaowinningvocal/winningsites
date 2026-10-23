@@ -1,0 +1,15 @@
+{
+  "name": "Winning Ranch",
+  "short_name": "Winning Ranch",
+  "description": "Owners and the ranch team, one app: horse updates, messages, shifts and bookings.",
+  "start_url": "./#/home",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0E0E0E",
+  "theme_color": "#0E0E0E",
+  "icons": [
+    { "src": "../img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../img/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "../img/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

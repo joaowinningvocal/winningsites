@@ -8,6 +8,7 @@ Um app só (Node + Express) que serve os novos sites do **Winning Ranch** e do *
 | `/ranch/` | Rascunho do novo Winning Ranch |
 | `/ranch/stalls.html` | Mapa interativo das baias (preços, fotos, disponibilidade, reserva) |
 | `/ranch/sign.html` | Assinatura online dos waivers e agreements |
+| `/ranch/app/` | App do rancho (POC): donos e equipe num login só, Home, Messages, ponto, checklist, posts |
 | `/ranch/portal/` | Portal do dono: login, cavalos, fotos e vídeos postados pela equipe |
 | `/ranch/admin/` | App da equipe: postar updates, reservas, cavalos, pessoas, baias e preços |
 | `/realty/` | Espaço do Winning Realty (por enquanto só um placeholder) |
@@ -32,6 +33,7 @@ Os comentários ficam em `data/review.json`.
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `ADMIN_NAME` (cria o primeiro login da equipe no app `/ranch/admin/`. Depois de criado, dá pra tirar a senha das variáveis)
    - `CONTACT_WEBHOOK_URL=https://...` (opcional: cada mensagem do formulário de contato também é enviada pra essa URL, ex. integrator.io ou Zapier)
    - `BOOKING_WEBHOOK_URL=https://...` (opcional: cada pedido de reserva é enviado pra essa URL. Se não tiver, usa o `CONTACT_WEBHOOK_URL`)
+   - `RESEND_API_KEY` e `REPORT_FROM` (relatórios de horas por email; veja "Time clock" abaixo). Sem isso, os relatórios vão para o `REPORT_WEBHOOK_URL` (ou `CONTACT_WEBHOOK_URL`), se existir
    - `SEED_DEMO=1` (opcional, só pra revisão: cria o dono de teste `demo@winningranch.com` / `demo-ranch` com o cavalo Dakota e alguns updates. Tire antes de ir ao ar)
 4. Gere um domínio em **Settings → Networking** e mande o link `https://SEU-DOMINIO/review/` pro chefe.
 
@@ -143,8 +145,77 @@ Os quatro documentos do rancho (boarding agreement, adult lesson packet, adult l
 
 Vale o advogado de vocês revisar o fluxo antes de aposentar o papel (consentimento eletrônico, menores de idade e retenção dos registros).
 
+### Time clock (ponto) e checklist do turno
+Cada pessoa da equipe tem uma **posição** (aba People):
+- **Ranch hand:** vê só "My shift" e "Post update".
+- **Ranch manager:** vê tudo e também bate ponto.
+- **Office:** vê tudo e não bate ponto (Randy e Jenna).
+
+Quem já tinha login fica como Office.
+
+**My shift (no celular):**
+- **Clock in** só funciona dentro do raio da ranch. O celular pede permissão de localização, e quem está longe recebe a distância e não consegue bater o ponto.
+- **Start break / End break** tira os intervalos das horas.
+- O checklist da Gabi é marcado item por item.
+- **Notas pra gerência:** marcando "Urgent", vai email na hora.
+- **Clock out:** se faltar item do checklist, pede uma nota do que ficou pendente. Bater a saída não exige estar na ranch, mas fica marcado se for longe.
+
+**Hours (gerente e office):**
+- Quem está no relógio agora.
+- O dia com cada turno: entrada, saída, intervalos, horas, checklist e alertas, como "No clock-out", "Clocked out 12.5 miles from the ranch" ou "Checklist 20/29".
+- **Fix** pra corrigir horários, com motivo obrigatório que vai pro relatório.
+- **Add a missed shift**, que aceita virada de noite.
+- A **semana de pagamento** com o total por pessoa em horas decimais e o **CSV para a folha**.
+
+**Configurar uma vez (Hours, "Time clock settings"):**
+1. Em pé no celeiro, toque **Use where I am now** pra salvar a localização da ranch. O raio padrão é 150 m (uns 500 ft).
+2. Coloque o email da Jenna em **Send reports to** (dá pra pôr vários, separados por vírgula).
+3. Ajuste o horário do relatório diário (padrão 7:00) e o dia em que começa a semana de pagamento (padrão segunda).
+4. O checklist também é editado ali: `#` começa uma seção e cada linha é uma tarefa.
+
+**Relatórios:** todo dia, no horário escolhido, vai o relatório do dia anterior (pra conferência). No primeiro dia da semana de pagamento vai o semanal, com o CSV anexo (pra folha). Os dois também podem ser enviados na hora pelo dashboard.
+
+**Ligar o email:**
+1. Crie uma conta grátis em resend.com.
+2. Verifique o domínio winningranch.com: ele mostra uns registros DNS pra adicionar.
+3. No Railway, coloque `RESEND_API_KEY` e `REPORT_FROM="Winning Ranch <reports@winningranch.com>"`.
+
+Enquanto o domínio não estiver verificado, dá pra testar com o remetente padrão do Resend, que só entrega pro email da conta.
+
+**Limites:**
+- A localização vem do celular. Inibe bastante, mas um aplicativo de GPS falso consegue enganar.
+- O sistema não calcula hora extra nem salário. Só marca dias acima de 8 h e semanas acima de 40 h pra quem fecha a folha decidir (Nevada tem regras próprias de overtime).
+
+### Apagar waivers
+Na aba Waivers, **Delete** tira um documento da lista (por exemplo, testes ou um formulário preenchido errado) e desativa o link da cópia do signatário. Dá pra informar um motivo. Nada é apagado de vez: em **Deleted** o documento pode ser restaurado.
+
+### App do rancho (POC) em `/ranch/app/`
+O protótipo segue o mesmo modelo do Winning App: um login só pra donos e equipe, uma Home que muda conforme a função, Messages, o sino de notificações e, pra equipe, o botão de câmera no meio da barra de baixo.
+
+**Dono:**
+- Home com os cavalos dele (foto, baia, último update, contador de novos).
+- O feed de fotos e vídeos de cada cavalo.
+- "Message the ranch": um chat privado com toda a equipe.
+- Atalhos pra reservar baia, assinar waivers, ver o mapa e ligar.
+
+**Ranch hand e ranch manager:**
+- Cartão de ponto na Home (clock in com localização, intervalo, clock out).
+- O checklist do turno.
+- O botão de câmera pra postar foto ou vídeo pro dono.
+- Messages com o chat da equipe e um chat por dono.
+
+**Manager e office:**
+- Contadores de reservas pendentes, waivers pra contra-assinar e quem está no relógio.
+- Atalhos pro dashboard completo.
+
+A Home se instala como app no celular ("Adicionar à tela de início") e tem modo escuro no menu do perfil. O mesmo endereço pode virar app nativo com Capacitor, como o Winning App.
+
+**Limites do POC:**
+- As mensagens atualizam a cada poucos segundos, sem push.
+- Notificação push no celular (como o Firebase do Winning App) fica pra versão nativa.
+
 ### Onde ficam os dados
-Tudo fica em `DATA_DIR`: `ranch.json` (baias, reservas, pessoas, cavalos, updates, histórico de preços, waivers assinados e as versões dos documentos) e `uploads/` (fotos das baias são públicas; fotos e vídeos dos cavalos e as assinaturas desenhadas só abrem para quem tem acesso). Por isso o Volume no Railway é obrigatório.
+Tudo fica em `DATA_DIR`: `ranch.json` (baias, reservas, pessoas, cavalos, updates, histórico de preços, waivers assinados, versões dos documentos, turnos, relatórios enviados, chats e mensagens) e `uploads/` (fotos das baias são públicas; fotos e vídeos dos cavalos e as assinaturas desenhadas só abrem para quem tem acesso). Por isso o Volume no Railway é obrigatório.
 
 ### Limitações desta versão
 - Sem pagamento online e sem envio automático de email/SMS.
