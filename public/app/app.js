@@ -36,7 +36,7 @@
   const time = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
   function ago(iso) {
     const s = (Date.now() - new Date(iso)) / 1000;
-    if (s < 60) return 'now';
+    if (s < 60) return 'just now';
     if (s < 3600) return `${Math.floor(s / 60)} min`;
     if (s < 86400) return `${Math.floor(s / 3600)} h`;
     return new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, month: 'short', day: 'numeric' });
@@ -95,6 +95,7 @@
     if ((m = h.match(/^#\/chat\/([\w-]+)/))) return chatView(m[1]);
     if (h.startsWith('#/messages')) return messagesView();
     if (h.startsWith('#/checklist')) return checklistView();
+    if (h.startsWith('#/documents')) return documentsView();
     return homeView();
   }
   window.addEventListener('hashchange', () => S.me && route());
@@ -104,7 +105,7 @@
       S.home = await api('GET', '/app/home');
       const fresh = S.home.horses.reduce((t, x) => t + x.fresh, 0);
       const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0);
-      const n = S.home.unread + fresh + extra;
+      const n = S.home.unread + fresh + extra + (S.home.toSign || 0);
       $('#bell-badge').hidden = !n; $('#bell-badge').textContent = n > 99 ? '99+' : n;
       $('#nav-dot').hidden = !S.home.unread;
     } catch (e) { if (e.status === 401) location.reload(); }
@@ -182,7 +183,7 @@
       body += `<p class="section-label">The ranch</p>
         ${feature({ href: '#/messages', icon: 'chat', title: 'Message the ranch', sub: 'Questions, requests, care changes', badge: h.unread || '' })}
         ${feature({ href: '/stalls.html', icon: 'stall', title: 'Book a stall', sub: 'Pick dates and stalls on the map' })}
-        ${feature({ href: '/waivers.html', icon: 'pen', title: 'Sign waivers', sub: 'Boarding, riding and more' })}
+        ${feature({ href: '#/documents', icon: 'pen', title: 'Documents', sub: h.toSign ? `${h.toSign} to sign` : 'Waivers and agreements', badge: h.toSign || '' })}
         <p class="section-label">More</p>
         <div class="tiles">${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html#amenities', 'star', 'Amenities')}${tile('tel:+13054099656', 'phone', 'Call a team member')}
           ${tile('https://www.google.com/maps/dir/?api=1&destination=5360+W+Agate+Ave,+Las+Vegas,+NV', 'pin', 'Directions')}${tile('/contact.html', 'globe', 'Contact')}${tile('/home.html', 'horse', 'Website')}</div>`;
@@ -192,6 +193,7 @@
       if (h.shift) body += feature({ href: '#/checklist', icon: 'check', title: 'Shift checklist', sub: `${h.shift.done.done} of ${h.shift.done.total} done` });
       body += feature({ act: 'post', icon: 'camera', title: 'Post an update', sub: 'Photos and videos for the owners' });
       body += feature({ href: '#/messages', icon: 'chat', title: 'Messages', sub: 'Team chat and owner chats', badge: h.unread || '' });
+      body += feature({ href: '#/documents', icon: 'pen', title: 'My documents', sub: h.toSign ? `${h.toSign} to sign` : 'Employee packet and W-9', badge: h.toSign || '' });
       if (p !== 'hand') {
         body += `<p class="section-label">Ranch</p>`;
         body += feature({ href: '/admin/#/bookings', icon: 'cal', title: 'Bookings', sub: h.pendingBookings ? `${h.pendingBookings} waiting for you` : 'Nothing waiting', badge: h.pendingBookings || '' });
@@ -315,7 +317,8 @@
     let last = messages.length ? messages[messages.length - 1].at : '';
     S.files = [];
     view.innerHTML = `<div class="wrap thread">
-      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'team' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span><b>${esc(chat.title)}</b></div>
+      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'team' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span><b>${esc(chat.title)}</b>
+        ${chat.type === 'owner' && isStaff() && pos() !== 'hand' ? '<button class="req-btn" type="button" id="req-sign">Request signature</button>' : ''}</div>
       <div class="thread__msgs" id="msgs"></div></div>
       <div class="composer"><p class="pending" id="pending" hidden></p><form id="send" novalidate>
         <button class="attach" type="button" id="attach" aria-label="Add a photo">${ic('camera')}</button>
@@ -329,6 +332,11 @@
       box.insertAdjacentHTML('beforeend', list.map((m) => {
         const who = !m.mine && team && m.by !== prevBy ? `<span class="who">${esc(m.by)}</span>` : '';
         prevBy = m.mine ? null : m.by;
+        if (m.kind === 'sign-request') {
+          return `<div class="msg ${m.mine ? 'mine' : ''}">${who}<div class="sign-card"><b>Signature requested</b>
+            ${m.docs.map((d) => `<div class="sign-card__row"><span>${esc(d.title)}</span>${d.status === 'signed' ? '<em class="ok">Signed</em>' : d.status === 'cancelled' ? '<em>Cancelled</em>' : isStaff() ? '<em>Waiting</em>' : `<a class="sign-go" href="/sign.html?doc=${esc(d.id)}&app=1">Sign</a>`}</div>`).join('')}
+            ${m.text.includes('. ') ? `<p class="muted">${esc(m.text.split('. ').slice(1).join('. '))}</p>` : ''}</div><time>${esc(time(m.at))}</time></div>`;
+        }
         return `<div class="msg ${m.mine ? 'mine' : ''}">${who}<div class="msg-bubble">${m.media.map((x) => x.type === 'video' ? `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(x.url)}" alt="Photo" data-full="${esc(x.url)}">`).join('')}${esc(m.text)}</div><time>${esc(time(m.at))}</time></div>`;
       }).join(''));
       window.scrollTo(0, document.body.scrollHeight);
@@ -336,14 +344,32 @@
     add(messages);
     if (!messages.length) box.innerHTML = `<p class="muted" style="text-align:center;margin-top:30px">${chat.type === 'team' ? 'Say hi to the team.' : isStaff() ? 'Start the conversation with this owner.' : 'Ask the ranch anything. The team usually answers fast.'}</p>`;
     api('POST', `/chats/${id}/read`).then(refreshCounts).catch(() => {});
-    S.threadPoll = setInterval(async () => {
-      if (document.hidden) return;
+    const pull = async (includeMine) => {
       try {
         const r = await api('GET', `/chats/${id}/messages?after=${encodeURIComponent(last)}`);
-        const fresh = r.messages.filter((m) => !m.mine);
+        const fresh = r.messages.filter((m) => includeMine || !m.mine);
         if (r.messages.length) { if (!last) box.innerHTML = ''; last = r.messages[r.messages.length - 1].at; if (fresh.length) { add(fresh); api('POST', `/chats/${id}/read`).catch(() => {}); } }
       } catch (_) {}
-    }, 4000);
+    };
+    S.threadPoll = setInterval(() => { if (!document.hidden) pull(false); }, 4000);
+    const rq = $('#req-sign');
+    if (rq) rq.onclick = () => openSheet(`<h2>Request a signature</h2><p class="muted">They get a card in this chat with a Sign button, and it shows in their Documents.</p>
+      <form id="rq" novalidate style="margin-top:12px">
+        ${[['boarding', 'Boarding agreement'], ['lesson', 'Adult lesson packet'], ['liability', 'Adult liability waiver']].map(([v, t]) => `<label class="pick"><input type="checkbox" value="${v}"> ${t}</label>`).join('')}
+        <div class="field" style="margin-top:10px"><label for="rq-n">Note (optional)</label><input id="rq-n" placeholder="Before Saturday, please"></div>
+        <button class="btn btn--red btn--big" type="submit">Send request</button><p class="err" id="rq-err"></p></form>`, (sheet) => {
+      $('#rq', sheet).onsubmit = async (e) => {
+        e.preventDefault();
+        const docIds = [...sheet.querySelectorAll('input[type=checkbox]:checked')].map((x) => x.value);
+        if (!docIds.length) { $('#rq-err', sheet).textContent = 'Pick at least one document.'; return; }
+        try {
+          const r = await api('POST', '/admin/sign-requests', { userId: chat.ownerId, docIds, note: $('#rq-n', sheet).value });
+          sheet.close();
+          toast(r.requested.length ? 'Request sent' : 'Those were already requested');
+          pull(true);
+        } catch (ex) { $('#rq-err', sheet).textContent = ex.message; }
+      };
+    });
     const ta = $('#text');
     ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; });
     $('#attach').onclick = () => $('#file').click();
@@ -361,6 +387,33 @@
         ta.value = ''; ta.style.height = 'auto'; S.files = []; $('#file').value = ''; $('#pending').hidden = true;
       } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
     };
+  }
+
+  // ------------------------------------------------------------------ documents
+  async function documentsView() {
+    view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
+    const { docs, w9 } = await api('GET', '/my/documents');
+    const date = (iso) => new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric' });
+    const card = (d) => {
+      const latest = d.signed[0];
+      const status = d.status === 'requested' ? `Requested by ${esc(d.request.by)}, ${esc(ago(d.request.at))}${d.request.note ? `: ${esc(d.request.note)}` : ''}`
+        : d.status === 'signed' ? `Signed ${esc(date(latest.at))}${latest.horse ? ` for ${esc(latest.horse)}` : ''}${latest.countersigned ? ', countersigned by the ranch' : ''}`
+          : `${esc(d.who)} About ${d.minutes} min.`;
+      const more = d.signed.slice(1).map((w) => `<a class="textlink" href="/api/ranch/my/waivers/${w.id}/copy" target="_blank" rel="noopener">${esc(date(w.at))}${w.horse ? `, ${esc(w.horse)}` : ''}</a>`).join(' ');
+      return `<article class="doc-card ${d.status}"><div class="doc-card__top"><span class="feature__ic">${ic('pen')}</span><div><h3>${esc(d.title)}</h3><p>${status}</p></div></div>
+        <div class="doc-card__actions">${d.status === 'signed'
+          ? `<a class="btn" href="/api/ranch/my/waivers/${latest.id}/copy" target="_blank" rel="noopener">View signed copy</a>${d.id === 'boarding' ? `<a class="btn" href="/sign.html?doc=boarding&app=1">Sign for another horse</a>` : ''}`
+          : `<a class="btn btn--red" href="/sign.html?doc=${esc(d.id)}&app=1">Sign now</a>`}</div>
+        ${more ? `<p class="muted doc-card__more">Earlier: ${more}</p>` : ''}</article>`;
+    };
+    const group = (title, list) => (list.length ? `<p class="section-label">${title}</p>${list.map(card).join('')}` : '');
+    view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a><h1 style="font-size:1.8rem">Documents</h1>
+      <p class="muted">Sign right here on your phone. Your name and contact details are filled in for you.</p>
+      ${group('To sign', docs.filter((d) => d.status === 'requested'))}
+      ${group('Signed', docs.filter((d) => d.status === 'signed'))}
+      ${group(docs.some((d) => d.status !== 'available') ? 'Other documents' : 'Your documents', docs.filter((d) => d.status === 'available'))}
+      ${w9 ? `<p class="section-label">Tax form</p><article class="doc-card"><div class="doc-card__top"><span class="feature__ic">${ic('doc')}</span><div><h3>Form W-9</h3><p>Download it, fill it out and hand it to the office. We don&rsquo;t collect Social Security numbers online.</p></div></div>
+        <div class="doc-card__actions"><a class="btn" href="/docs/w9.pdf" download>Download W-9</a></div></article>` : ''}</div>`;
   }
 
   // ------------------------------------------------------------------ post an update (team)
@@ -424,6 +477,7 @@
     if (!n.hidden) { n.hidden = true; return; }
     await refreshCounts();
     const h = S.home; const items = [];
+    if (h.toSign) items.push(`<a href="#/documents"><b>The ranch asked you to sign ${h.toSign} document${h.toSign === 1 ? '' : 's'}</b><small>Open Documents</small></a>`);
     if (h.unread) items.push(`<a href="#/messages"><b>${h.unread} unread message${h.unread === 1 ? '' : 's'}</b><small>Open Messages</small></a>`);
     h.horses.filter((x) => x.fresh).forEach((x) => items.push(`<a href="#/horse/${x.id}"><b>${x.fresh} new update${x.fresh === 1 ? '' : 's'} on ${esc(x.name)}</b><small>${esc(x.latest ? x.latest.caption || 'New photo' : '')}</small></a>`));
     if (h.pendingBookings) items.push(`<a href="/admin/#/bookings"><b>${h.pendingBookings} booking request${h.pendingBookings === 1 ? '' : 's'}</b><small>Waiting for you</small></a>`);

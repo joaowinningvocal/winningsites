@@ -53,6 +53,10 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 
 **Visitantes** veem na tela de login os atalhos para reservar, assinar waivers e conhecer o rancho.
 
+**Documentos no app:** a tela **Documents** mostra o que a pessoa já assinou (com a cópia), o que a ranch pediu e o que ainda pode assinar. A assinatura abre dentro do app, com nome, email, telefone e cavalo já preenchidos, e fica ligada à conta. Manager e office pedem assinatura de dois jeitos:
+- pelo botão **Request signature** no chat do dono, que vira um cartão com botão "Sign";
+- pela aba **People** do dashboard, que também mostra o status dos documentos de cada pessoa.
+
 Não tem cadastro aberto. A equipe cria a pessoa em **People** (no dashboard) e manda o link de acesso por SMS ou email. A pessoa abre, cria a senha e entra no app.
 
 O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. A versão nas lojas sai embrulhando o mesmo endereço com Capacitor, como o Winning App.

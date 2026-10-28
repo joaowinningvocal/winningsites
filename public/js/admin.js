@@ -289,7 +289,7 @@
   // ================================================================ PEOPLE
   async function peopleView(showAdd) {
     loading();
-    const { users } = await api('GET', '/admin/users');
+    const [{ users }, { status: docStatus }] = await Promise.all([api('GET', '/admin/users'), api('GET', '/admin/documents/status')]);
     users.sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'staff' ? 1 : -1));
     const inviteBox = (url, person) => {
       const msg = `Hi ${person.split(' ')[0]}, here's your Winning Ranch login link: ${url}`;
@@ -320,6 +320,8 @@
             <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[u.position] || 'Ranch team') : 'Owner'}</span>
               ${!u.active ? '<span class="status status--cancelled">Access off</span>' : !u.hasPassword ? '<span class="status status--invite">Hasn’t logged in yet</span>' : ''}</div>
             <dl><dt>Email</dt><dd>${esc(u.email)}</dd>${u.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(u.phone)}">${esc(u.phone)}</a></dd>` : ''}${u.role === 'owner' ? `<dt>Horses</dt><dd>${esc(u.horses.join(', ') || 'None yet')}</dd>` : ''}</dl>
+            <div class="doc-chips">${Object.entries(docStatus[u.id] || {}).map(([, s]) => `<span class="doc-chip ${s.signedAt ? 'is-signed' : s.requested ? 'is-req' : ''}">${esc(s.title)}: ${s.signedAt ? `signed ${esc(fmtDay(s.signedAt))}` : s.requested ? 'requested' : 'not signed'}</span>`).join('')}
+              ${u.active && Object.values(docStatus[u.id] || {}).some((s) => !s.signedAt && !s.requested) ? `<select class="pos-select" data-req-doc aria-label="Document to request">${Object.entries(docStatus[u.id]).filter(([, s]) => !s.signedAt && !s.requested).map(([id, s]) => `<option value="${id}">${esc(s.title)}</option>`).join('')}</select><button class="btn btn--sm btn--ghost" type="button" data-request-doc>Request signature</button>` : ''}</div>
             <div class="btn-row"><button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>
               ${u.role === 'staff' && u.id !== user.id ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[p]}</option>`).join('')}</select>` : ''}
               ${u.id !== user.id ? `<button class="btn btn--sm btn--ghost" data-toggle="${u.active ? 0 : 1}">${u.active ? 'Turn off access' : 'Turn on access'}</button>` : ''}</div>
@@ -334,6 +336,11 @@
       if (copy) { try { await navigator.clipboard.writeText(copy.dataset.copy); toast('Link copied'); } catch { toast('Select the link and copy it'); } return; }
       const card = e.target.closest('.card');
       if (!card) return;
+      if (e.target.closest('[data-request-doc]')) {
+        const docId = card.querySelector('[data-req-doc]').value;
+        try { await api('POST', '/admin/sign-requests', { userId: card.dataset.id, docIds: [docId] }); toast('Request sent. It shows in their app.'); peopleView(); } catch (ex) { toast(ex.message); }
+        return;
+      }
       if (e.target.closest('[data-invite]')) {
         try { const { inviteUrl } = await api('POST', `/admin/users/${card.dataset.id}/invite`); card.querySelector('[data-invite-box]').innerHTML = inviteBox(inviteUrl, card.dataset.name); } catch (ex) { toast(ex.message); }
       }

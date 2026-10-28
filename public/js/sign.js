@@ -5,6 +5,13 @@
   const root = $('#sign-root');
   const params = new URLSearchParams(location.search);
   const docId = params.get('doc');
+  const inApp = params.get('app') === '1';
+  const appQ = inApp ? '&app=1' : '';
+  if (inApp) {
+    // Opened from the Winning Ranch app: no website header/footer, a back link to Documents
+    document.body.classList.add('in-app');
+    document.body.insertAdjacentHTML('afterbegin', '<div class="appbar"><a href="/#/documents">&lsaquo; Documents</a><span>Winning Ranch</span></div>');
+  }
   let doc = null;
   let pad = null;
   const DRAFT = () => 'wr-sign-' + doc.id;
@@ -118,6 +125,7 @@
     $('#sign-date').textContent = 'Date: ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     loadReader();
     restoreDraft();
+    prefillAccount();
     wire();
   }
 
@@ -187,6 +195,21 @@
     syncVisibility();
   }
 
+  // Logged in through the app? Fill in what the account already knows
+  async function prefillAccount() {
+    try {
+      const { user } = await (await fetch(API + '/auth/me')).json();
+      if (!user) return;
+      const set = (id, v) => { const el = $('#' + id); if (el && !el.value && v) el.value = v; };
+      set('f-name', user.name); set('f-email', user.email); set('f-cell', user.phone);
+      if (doc.id === 'boarding' && user.role === 'owner') {
+        const { horses } = await (await fetch(API + '/my/horses')).json();
+        if (horses.length === 1) set('f-horseName', horses[0].name);
+      }
+      syncVisibility();
+    } catch (_) { /* not logged in: nothing to fill */ }
+  }
+
   function wire() {
     const form = $('#sign-form');
     form.addEventListener('input', () => { syncVisibility(); saveDraft(); });
@@ -254,9 +277,9 @@
         <p>Open your signed copy and save or print it for your records. Keep the link private: anyone who has it can open the copy.</p>
         <div class="btn-row">
           <a class="btn btn--red" href="${esc(data.copyUrl)}" target="_blank" rel="noopener">Open my signed copy</a>
-          ${doc.id === 'boarding' ? '<a class="btn" href="sign.html?doc=boarding">Fill one out for another horse</a>' : ''}
-          ${doc.id === 'lesson' ? '<a class="btn" href="sign.html?doc=liability">Next: liability waiver</a>' : ''}
-          <a class="btn" href="waivers.html">Back to all waivers</a>
+          ${doc.id === 'boarding' ? `<a class="btn" href="sign.html?doc=boarding${appQ}">Fill one out for another horse</a>` : ''}
+          ${doc.id === 'lesson' ? `<a class="btn" href="sign.html?doc=liability${appQ}">Next: liability waiver</a>` : ''}
+          ${inApp ? '<a class="btn" href="/#/documents">Back to my documents</a>' : '<a class="btn" href="waivers.html">Back to all waivers</a>'}
         </div>
       </div></div>`;
     $('#doc-who').textContent = 'Thank you.';

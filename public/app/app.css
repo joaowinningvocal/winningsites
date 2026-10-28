@@ -196,3 +196,27 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.1; le
 .login a.btn { color: #fff; }
 img { height: auto; }
 .login { margin-top: -18px; }
+
+/* Documents */
+.doc-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); }
+.doc-card + .doc-card { margin-top: 10px; }
+.doc-card.requested { border-left: 5px solid var(--red); }
+.doc-card.signed { border-left: 5px solid #1f8a4c; }
+.doc-card__top { display: flex; gap: 12px; align-items: flex-start; }
+.doc-card__top h3 { font-family: var(--body); font-weight: 600; font-size: 1.08rem; letter-spacing: 0; }
+.doc-card__top p { color: var(--ink-soft); font-size: .92rem; }
+.doc-card__actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.doc-card__actions .btn { min-height: 46px; width: auto; flex: 1 1 140px; }
+.doc-card__more { margin-top: 8px; font-size: .88rem; }
+.textlink { text-decoration: underline; text-decoration-color: var(--red); }
+/* Signature request card in chats */
+.sign-card { background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--red); border-radius: 14px; padding: 10px 12px; max-width: 85%; min-width: 240px; }
+.sign-card b { display: block; margin-bottom: 6px; }
+.sign-card__row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.sign-card__row em { font-style: normal; font-weight: 600; color: var(--ink-soft); font-size: .9rem; }
+.sign-card__row em.ok { color: #1f8a4c; }
+.sign-go { background: var(--red); color: #fff; border-radius: 999px; padding: 6px 16px; font-weight: 600; }
+.sign-card .muted { margin-top: 6px; font-size: .9rem; }
+.req-btn { margin-left: auto; border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 12px; font-weight: 600; font-size: .88rem; }
+.pick { display: flex; gap: 10px; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--line); font-weight: 500; }
+.pick input { width: 22px; height: 22px; accent-color: var(--red); }

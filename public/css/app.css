@@ -325,3 +325,8 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .hours textarea[name="checklistText"] { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92rem; }
 .pos-select { font: 600 .95rem var(--text); border: 1px solid var(--line); padding: 8px 10px; min-height: 42px; background: var(--paper); }
 .btn--danger:hover { border-color: var(--red-deep); color: var(--red-deep); background: transparent; }
+
+.doc-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 12px; }
+.doc-chip { font-size: .85rem; font-weight: 600; padding: 3px 10px; border: 1px solid var(--line); color: var(--dust); }
+.doc-chip.is-signed { color: #1f6b3a; border-color: #b9dcc6; background: #eef7f1; }
+.doc-chip.is-req { color: #9a5b00; border-color: #f0d9a8; background: #fff6e2; }

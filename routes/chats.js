@@ -8,7 +8,7 @@ const fs = require('fs');
 const multer = require('multer');
 const H = require('../lib/hours');
 
-module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById }) {
+module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, docTitle }) {
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
@@ -38,7 +38,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const last = msgs[msgs.length - 1];
     const seen = lastRead(u, c.id);
     return {
-      id: c.id, type: c.type, title: titleFor(u, c),
+      id: c.id, type: c.type, title: titleFor(u, c), ownerId: isStaff(u) ? c.ownerId : undefined,
       last: last ? { text: last.text || (last.media.length ? 'Photo' : ''), at: last.at, by: last.userId === u.id ? 'You' : nameOf(last.userId) } : null,
       unread: msgs.filter((m) => m.userId !== u.id && m.at > seen).length,
     };
@@ -48,6 +48,11 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     id: m.id, text: m.text, at: m.at, mine: m.userId === u.id, by: nameOf(m.userId),
     staff: isStaff(db.users.find((x) => x.id === m.userId)),
     media: m.media.map((x) => ({ type: x.type, url: `/api/ranch/chat-media/${x.file}` })),
+    ...(m.kind === 'sign-request' ? {
+      kind: 'sign-request',
+      docs: (m.requestIds || []).map((id) => (db.signRequests || []).find((q) => q.id === id)).filter(Boolean)
+        .map((q) => ({ id: q.docId, title: docTitle(q.docId), status: q.status })),
+    } : {}),
   });
 
   const upload = multer({
@@ -103,6 +108,16 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     res.set('Cache-Control', 'private, max-age=86400').sendFile(path.join(uploads, 'private', file));
   });
 
+  // Used by signature requests: a card in the owner's chat with "Sign" buttons
+  function postSignRequest(ownerId, byUserId, requestIds, note) {
+    const c = ownerChat(ownerId);
+    const titles = requestIds.map((id) => docTitle((db.signRequests.find((q) => q.id === id) || {}).docId));
+    const m = { id: newId(), chatId: c.id, userId: byUserId, kind: 'sign-request', requestIds, media: [], at: now(),
+      text: `Please sign: ${titles.join(', ')}.${note ? ' ' + note : ''}` };
+    db.messages.push(m);
+    return m;
+  }
+
   // ---------------------------------------------------------------- home screen
   r.get('/app/home', auth.requireUser, (req, res) => {
     const u = req.user;
@@ -119,7 +134,8 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
         fresh: ups.filter((x) => x.createdAt > seenUpdates).length,
       };
     });
-    const out = { user: auth.publicUser(u), unread, horses };
+    const toSign = (db.signRequests || []).filter((q) => q.userId === u.id && q.status === 'pending').length;
+    const out = { user: auth.publicUser(u), unread, horses, toSign };
     if (isStaff(u)) {
       const pos = u.position || 'office';
       const shift = (db.shifts || []).find((s) => !s.deletedAt && s.userId === u.id && !s.out);
@@ -139,4 +155,6 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     await store.save();
     res.json({ ok: true });
   });
+
+  return { postSignRequest };
 };

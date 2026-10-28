@@ -32,6 +32,7 @@ module.exports = function ranchRouter({ dataDir }) {
     contacts: [],
     priceLog: [],
     waivers: [],
+    signRequests: [],
     docVersions: {},
     migrations: {},
   });
@@ -285,11 +286,16 @@ module.exports = function ranchRouter({ dataDir }) {
     const w = {
       id: newId(), docId: doc.id, docTitle: doc.title, docVersion: version,
       fields, minor: forMinor, guardianName, signerName, typedSignature: typed,
-      signatureFile: file, copyKey: sha(key),
+      signatureFile: file, copyKey: sha(key), userId: req.user ? req.user.id : null,
       signedAt: now(), ip: req.ip, userAgent: str(req.headers['user-agent'], 300),
       countersign: null,
     };
     db.waivers.push(w);
+    // Signing fulfills any open request for this document (same account, or same email)
+    const signerEmail = String(fields.email || '').toLowerCase();
+    db.signRequests.filter((q) => q.status === 'pending' && q.docId === doc.id
+      && ((req.user && q.userId === req.user.id) || ((db.users.find((u) => u.id === q.userId) || {}).email === signerEmail)))
+      .forEach((q) => { q.status = 'signed'; q.waiverId = w.id; q.signedAt = w.signedAt; });
     await store.save();
     notify('waiver', { doc: doc.title, name: fields.name, signer: signerName, email: fields.email, phone: fields.cell, horse: fields.horseName || '', signedAt: w.signedAt });
     res.status(201).json({ id: w.id, doc: doc.title, signedAt: w.signedAt, copyUrl: `/api/ranch/waivers/${w.id}/copy?k=${key}` });
@@ -773,7 +779,80 @@ module.exports = function ranchRouter({ dataDir }) {
   require('./shifts')({ staff, db, store, newId, now, str });
 
   // ---- app: messages and the home screen
-  require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById });
+  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, docTitle: (id) => (docById(id) || {}).title || id });
+
+  // ---- documents: what each person signed, what the ranch asked them to sign
+  const mineWaivers = (u) => db.waivers.filter((w) => !w.deletedAt
+    && (w.userId === u.id || (!w.userId && String(w.fields.email || '').toLowerCase() === u.email)));
+  const docsFor = (u) => (u.role === 'staff' ? ['employee'] : ['boarding', 'lesson', 'liability']);
+
+  r.get('/my/documents', auth.requireUser, (req, res) => {
+    const u = req.user;
+    const mine = mineWaivers(u);
+    const pending = db.signRequests.filter((q) => q.userId === u.id && q.status === 'pending');
+    const ids = [...new Set([...docsFor(u), ...pending.map((q) => q.docId), ...mine.map((w) => w.docId)])];
+    res.json({
+      docs: ids.map(docById).filter(Boolean).map((d) => {
+        const signed = mine.filter((w) => w.docId === d.id).sort((a, b) => b.signedAt.localeCompare(a.signedAt));
+        const q = pending.find((x) => x.docId === d.id);
+        return {
+          id: d.id, title: d.title, who: d.who, minutes: d.minutes,
+          status: q ? 'requested' : signed.length ? 'signed' : 'available',
+          request: q ? { by: q.requestedBy, at: q.requestedAt, note: q.note } : null,
+          signed: signed.map((w) => ({ id: w.id, at: w.signedAt, horse: w.fields.horseName || '', countersigned: !!w.countersign })),
+        };
+      }),
+      w9: u.role === 'staff',
+    });
+  });
+
+  r.get('/my/waivers/:id/copy', auth.requireUser, async (req, res) => {
+    const w = mineWaivers(req.user).find((x) => x.id === req.params.id);
+    if (!w) return res.status(404).send('Not found');
+    res.set('Cache-Control', 'private, no-store').type('html').send(await signedCopy(w, { forStaff: false }));
+  });
+
+  staff.get('/documents/status', (_req, res) => {
+    const out = {};
+    for (const u of db.users) {
+      const mine = mineWaivers(u);
+      out[u.id] = {};
+      for (const id of [...new Set([...docsFor(u), ...mine.map((w) => w.docId)])]) {
+        const last = mine.filter((w) => w.docId === id).sort((a, b) => b.signedAt.localeCompare(a.signedAt))[0];
+        const q = db.signRequests.find((x) => x.userId === u.id && x.docId === id && x.status === 'pending');
+        out[u.id][id] = { title: (docById(id) || {}).title || id, signedAt: last ? last.signedAt : null, requested: q ? { id: q.id, at: q.requestedAt, by: q.requestedBy } : null };
+      }
+    }
+    res.json({ status: out });
+  });
+
+  staff.post('/sign-requests', async (req, res) => {
+    const b = req.body || {};
+    const user = db.users.find((u) => u.id === b.userId && u.active !== false);
+    if (!user) return res.status(400).json({ error: 'Pick the person.' });
+    const docIds = (Array.isArray(b.docIds) ? b.docIds : []).filter((id) => docById(id));
+    if (!docIds.length) return res.status(400).json({ error: 'Pick at least one document.' });
+    const note = str(b.note, 300);
+    const made = [];
+    for (const docId of docIds) {
+      if (db.signRequests.some((q) => q.userId === user.id && q.docId === docId && q.status === 'pending')) continue;
+      const q = { id: newId(), userId: user.id, docId, note, status: 'pending', requestedBy: req.user.name, requestedById: req.user.id, requestedAt: now() };
+      db.signRequests.push(q);
+      made.push(q);
+    }
+    let message = null;
+    if (made.length && user.role === 'owner') message = chatApi.postSignRequest(user.id, req.user.id, made.map((q) => q.id), note);
+    await store.save();
+    res.status(201).json({ requested: made.map((q) => q.docId), alreadyPending: docIds.length - made.length, messageId: message && message.id });
+  });
+
+  staff.delete('/sign-requests/:id', async (req, res) => {
+    const q = db.signRequests.find((x) => x.id === req.params.id && x.status === 'pending');
+    if (!q) return res.status(404).json({ error: 'Request not found.' });
+    q.status = 'cancelled'; q.cancelledBy = req.user.name; q.cancelledAt = now();
+    await store.save();
+    res.status(204).end();
+  });
 
   return r;
 };

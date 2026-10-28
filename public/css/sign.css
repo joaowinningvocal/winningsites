@@ -64,3 +64,11 @@
 .reader table { display: block; overflow-x: auto; max-width: 100%; }
 .reader col { width: auto !important; }
 .choice span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Opened inside the app */
+.in-app .site-header, .in-app .site-footer, .in-app .quickbar, .in-app .crumb { display: none !important; }
+.in-app { padding-bottom: 0 !important; }
+.appbar { position: sticky; top: 0; z-index: 60; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: var(--ink); color: var(--on-ink); padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px; font-weight: 600; }
+.appbar a { color: var(--on-ink); text-decoration: none; }
+.appbar span { font-family: var(--display); }
