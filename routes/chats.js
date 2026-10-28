@@ -15,22 +15,33 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   if (!db.chats.some((c) => c.type === 'team')) { db.chats.push({ id: newId(), type: 'team', title: 'Winning Ranch Team', createdAt: now() }); store.save(); }
 
   const isStaff = (u) => u && u.role === 'staff';
+  // The team in chats = staff except the lesson program (they only send waivers)
+  const isTeam = (u) => isStaff(u) && (u.position || 'office') !== 'lessons';
+  const isLead = (u) => isStaff(u) && ['manager', 'office'].includes(u.position || 'office');
   const ownerChat = (ownerId) => {
     let c = db.chats.find((x) => x.type === 'owner' && x.ownerId === ownerId);
     if (!c) { c = { id: newId(), type: 'owner', ownerId, createdAt: now() }; db.chats.push(c); store.save(); }
     return c;
   };
-  const canSee = (u, c) => !!(u && c && (isStaff(u) || (c.type === 'owner' && c.ownerId === u.id)));
-  const titleFor = (u, c) => (c.type === 'team' ? c.title : isStaff(u) ? ((db.users.find((x) => x.id === c.ownerId) || {}).name || 'Owner') : 'Winning Ranch');
+  const canSee = (u, c) => !!(u && c && (
+    (c.type === 'team' && isTeam(u))
+    || (c.type === 'owner' && (isTeam(u) || c.ownerId === u.id))
+    || ((c.type === 'group' || c.type === 'dm') && (c.members || []).includes(u.id))));
+  const titleFor = (u, c) => (c.type === 'team' || c.type === 'group' ? c.title
+    : c.type === 'dm' ? nameOf((c.members || []).find((id) => id !== u.id))
+      : isStaff(u) ? ((db.users.find((x) => x.id === c.ownerId) || {}).name || 'Owner') : 'Winning Ranch');
+  const canManage = (u, c) => c.type === 'group' && (c.createdBy === u.id || isLead(u));
+  function sys(c, text) { db.messages.push({ id: newId(), chatId: c.id, userId: null, kind: 'system', text, media: [], at: now() }); }
   const lastRead = (u, cid) => ((db.reads[u.id] || {})[cid]) || '';
   const nameOf = (id) => (db.users.find((x) => x.id === id) || {}).name || 'Someone';
 
   function visibleChats(u) {
-    if (isStaff(u)) {
+    const mine = db.chats.filter((c) => (c.type === 'group' || c.type === 'dm') && (c.members || []).includes(u.id));
+    if (isTeam(u)) {
       db.users.filter((x) => x.role === 'owner' && x.active !== false).forEach((o) => ownerChat(o.id));
-      return db.chats.filter((c) => c.type === 'team' || (c.type === 'owner' && (db.users.find((x) => x.id === c.ownerId) || {}).active !== false));
+      return db.chats.filter((c) => c.type === 'team' || (c.type === 'owner' && (db.users.find((x) => x.id === c.ownerId) || {}).active !== false)).concat(mine);
     }
-    return u.role === 'owner' ? [ownerChat(u.id)] : [];
+    return u.role === 'owner' ? [ownerChat(u.id), ...mine] : [];
   }
 
   function chatOut(u, c) {
@@ -39,6 +50,8 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const seen = lastRead(u, c.id);
     return {
       id: c.id, type: c.type, title: titleFor(u, c), ownerId: isStaff(u) ? c.ownerId : undefined,
+      members: c.type === 'group' ? (c.members || []).map((id) => ({ id, name: nameOf(id) })) : undefined,
+      canManage: canManage(u, c),
       last: last ? { text: last.text || (last.media.length ? 'Photo' : ''), at: last.at, by: last.userId === u.id ? 'You' : nameOf(last.userId) } : null,
       unread: msgs.filter((m) => m.userId !== u.id && m.at > seen).length,
     };
@@ -48,6 +61,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     id: m.id, text: m.text, at: m.at, mine: m.userId === u.id, by: nameOf(m.userId),
     staff: isStaff(db.users.find((x) => x.id === m.userId)),
     media: m.media.map((x) => ({ type: x.type, url: `/api/ranch/chat-media/${x.file}` })),
+    ...(m.kind === 'system' ? { kind: 'system' } : {}),
     ...(m.kind === 'sign-request' ? {
       kind: 'sign-request',
       docs: (m.requestIds || []).map((id) => (db.signRequests || []).find((q) => q.id === id)).filter(Boolean)
@@ -69,6 +83,70 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const list = visibleChats(req.user).map((c) => chatOut(req.user, c))
       .sort((a, b) => (b.last ? b.last.at : '').localeCompare(a.last ? a.last.at : '') || (a.type === 'team' ? -1 : 1));
     res.json({ chats: list });
+  });
+
+  // ---------------------------------------------------------------- groups and direct messages (team)
+  const requireTeam = (req, res, next) => (isTeam(req.user) ? next() : res.status(403).json({ error: 'Only the ranch team can do this.' }));
+  const people = (u) => db.users.filter((x) => x.active !== false && x.id !== u.id && (x.role === 'owner' || isTeam(x)));
+
+  r.get('/chats/people', auth.requireUser, requireTeam, (req, res) => {
+    res.json({ people: people(req.user).map((x) => ({ id: x.id, name: x.name, role: x.role, position: x.position || (x.role === 'staff' ? 'office' : undefined) }))
+      .sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'staff' ? -1 : 1)) });
+  });
+
+  r.post('/chats', auth.requireUser, requireTeam, async (req, res) => {
+    const b = req.body || {};
+    const ok = new Set(people(req.user).map((x) => x.id));
+    if (b.type === 'dm') {
+      const other = db.users.find((x) => x.id === b.userId && ok.has(x.id) && isTeam(x));
+      if (!other) return res.status(400).json({ error: 'Pick someone on the team. Owners have their own chat with the ranch.' });
+      let c = db.chats.find((x) => x.type === 'dm' && x.members.includes(req.user.id) && x.members.includes(other.id));
+      if (!c) { c = { id: newId(), type: 'dm', members: [req.user.id, other.id], createdBy: req.user.id, createdAt: now() }; db.chats.push(c); await store.save(); }
+      return res.status(201).json({ chat: chatOut(req.user, c) });
+    }
+    const title = str(b.title, 60);
+    const members = [...new Set((Array.isArray(b.memberIds) ? b.memberIds : []).filter((id) => ok.has(id)))];
+    if (!title) return res.status(400).json({ error: 'Give the group a name.' });
+    if (!members.length) return res.status(400).json({ error: 'Add at least one person.' });
+    const c = { id: newId(), type: 'group', title, members: [req.user.id, ...members], createdBy: req.user.id, createdAt: now() };
+    db.chats.push(c);
+    sys(c, `${req.user.name} created the group`);
+    await store.save();
+    res.status(201).json({ chat: chatOut(req.user, c) });
+  });
+
+  r.patch('/chats/:id', auth.requireUser, async (req, res) => {
+    const c = db.chats.find((x) => x.id === req.params.id);
+    if (!canSee(req.user, c) || !canManage(req.user, c)) return res.status(403).json({ error: 'Only the group’s creator or a manager can change it.' });
+    const title = str(req.body && req.body.title, 60);
+    if (!title) return res.status(400).json({ error: 'Give the group a name.' });
+    c.title = title;
+    sys(c, `${req.user.name} renamed the group to ${title}`);
+    await store.save();
+    res.json({ chat: chatOut(req.user, c) });
+  });
+
+  r.post('/chats/:id/members', auth.requireUser, async (req, res) => {
+    const c = db.chats.find((x) => x.id === req.params.id);
+    if (!canSee(req.user, c) || !canManage(req.user, c)) return res.status(403).json({ error: 'Only the group’s creator or a manager can add people.' });
+    const ok = new Set(people(req.user).map((x) => x.id));
+    const add = [...new Set((req.body && req.body.userIds) || [])].filter((id) => ok.has(id) && !c.members.includes(id));
+    if (!add.length) return res.status(400).json({ error: 'Pick someone who isn’t in the group yet.' });
+    c.members.push(...add);
+    sys(c, `${req.user.name} added ${add.map(nameOf).join(', ')}`);
+    await store.save();
+    res.json({ chat: chatOut(req.user, c) });
+  });
+
+  r.delete('/chats/:id/members/:userId', auth.requireUser, async (req, res) => {
+    const c = db.chats.find((x) => x.id === req.params.id);
+    const self = req.params.userId === req.user.id;
+    if (!canSee(req.user, c) || c.type !== 'group' || (!self && !canManage(req.user, c))) return res.status(403).json({ error: 'You can’t remove people from this group.' });
+    if (!c.members.includes(req.params.userId)) return res.status(404).json({ error: 'Not in the group.' });
+    c.members = c.members.filter((id) => id !== req.params.userId);
+    sys(c, self ? `${req.user.name} left the group` : `${req.user.name} removed ${nameOf(req.params.userId)}`);
+    await store.save();
+    res.status(204).end();
   });
 
   r.get('/chats/:id/messages', auth.requireUser, (req, res) => {

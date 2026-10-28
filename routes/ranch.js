@@ -12,6 +12,7 @@ const { createAuth, rateLimit } = require('../lib/auth');
 const { seedStalls, seedDemo, STALL_SIZE } = require('../lib/ranch-seed');
 const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
 const { DOCS, docById, allFields } = require('../lib/docs');
+const mailer = require('../lib/mailer');
 
 const IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
 const VIDEO = { 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'video/3gpp': '.3gp' };
@@ -293,8 +294,10 @@ module.exports = function ranchRouter({ dataDir }) {
     db.waivers.push(w);
     // Signing fulfills any open request for this document (same account, or same email)
     const signerEmail = String(fields.email || '').toLowerCase();
+    const viaLink = typeof b.requestId === 'string' ? b.requestId : '';
     db.signRequests.filter((q) => q.status === 'pending' && q.docId === doc.id
-      && ((req.user && q.userId === req.user.id) || ((db.users.find((u) => u.id === q.userId) || {}).email === signerEmail)))
+      && (q.id === viaLink || (req.user && q.userId && q.userId === req.user.id)
+        || (q.userId ? (db.users.find((u) => u.id === q.userId) || {}).email === signerEmail : q.email === signerEmail)))
       .forEach((q) => { q.status = 'signed'; q.waiverId = w.id; q.signedAt = w.signedAt; });
     await store.save();
     notify('waiver', { doc: doc.title, name: fields.name, signer: signerName, email: fields.email, phone: fields.cell, horse: fields.horseName || '', signedAt: w.signedAt });
@@ -440,12 +443,34 @@ module.exports = function ranchRouter({ dataDir }) {
 
   // Ranch hands only get their shift and posting updates; everything else is for managers and office
   const HAND_ALLOWED = [/^GET \/horses$/, /^POST \/updates$/, /^(GET|POST|PATCH) \/shift(\/[\w-]+)?$/];
+  // The lesson program only sends waivers to its clients
+  const LESSONS_ALLOWED = [/^(GET|POST) \/client-waivers$/];
   staff.use((req, res, next) => {
-    if ((req.user.position || 'office') !== 'hand') return next();
-    if (HAND_ALLOWED.some((rx) => rx.test(`${req.method} ${req.path}`))) return next();
+    const pos = req.user.position || 'office';
+    const allowed = pos === 'hand' ? HAND_ALLOWED : pos === 'lessons' ? LESSONS_ALLOWED : null;
+    if (!allowed || allowed.some((rx) => rx.test(`${req.method} ${req.path}`))) return next();
     res.status(403).json({ error: 'Ask a manager for access to this.' });
   });
   r.use('/admin', staff);
+
+
+  // ---- people helpers: positions, invite emails
+  const POSITIONS = ['hand', 'manager', 'office', 'lessons'];
+  const POSITION_LABEL = { hand: 'ranch hand', manager: 'ranch manager', office: 'office', lessons: 'lesson program' };
+  async function emailInvite(user, url, by) {
+    const what = user.role === 'owner' ? 'see your horse’s photos and videos, message the team and sign your documents'
+      : user.position === 'lessons' ? 'send waivers to your lesson clients and see when they’re signed'
+        : 'clock in, follow the shift checklist, post updates for owners and chat with the team';
+    return mailer.sendEmail({
+      to: user.email,
+      subject: 'You’re invited to the Winning Ranch app',
+      html: mailer.layout({
+        title: `Welcome, ${String(user.name).split(' ')[0]}`,
+        body: `<p>${by ? `${by.name} added you` : 'You’ve been added'} to the Winning Ranch app${user.role === 'staff' ? ` as ${POSITION_LABEL[user.position || 'office']}` : ''}. In the app you can ${what}.</p><p>Tap the button to create your password. The link works once and expires in 14 days.</p>`,
+        button: { label: 'Set up my account', url },
+      }),
+    });
+  }
 
   // ---- bookings
   staff.get('/bookings', (_req, res) => {
@@ -609,7 +634,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const b = req.body || {};
     const name = str(b.name, 100), email = str(b.email, 160).toLowerCase(), phone = str(b.phone, 40);
     const role = b.role === 'staff' ? 'staff' : 'owner';
-    const position = role === 'staff' ? (['hand', 'manager', 'office'].includes(b.position) ? b.position : 'office') : undefined;
+    const position = role === 'staff' ? (POSITIONS.includes(b.position) ? b.position : 'office') : undefined;
     if (!name) return res.status(400).json({ error: 'Add a name.' });
     if (!validEmail(email)) return res.status(400).json({ error: 'Add a valid email. It’s what they log in with.' });
     if (db.users.some((u) => u.email === email)) return res.status(409).json({ error: 'Someone already has that email.' });
@@ -617,14 +642,18 @@ module.exports = function ranchRouter({ dataDir }) {
     db.users.push(user);
     await store.save();
     const t = auth.createInvite(user);
-    res.status(201).json({ user: auth.publicUser(user), inviteUrl: `${origin(req)}/#/invite/${t}` });
+    const inviteUrl = `${origin(req)}/#/invite/${t}`;
+    const mail = b.sendEmail === false ? null : await emailInvite(user, inviteUrl, req.user);
+    res.status(201).json({ user: auth.publicUser(user), inviteUrl, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
   });
 
-  staff.post('/users/:id/invite', (req, res) => {
+  staff.post('/users/:id/invite', async (req, res) => {
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Person not found.' });
     const t = auth.createInvite(user);
-    res.json({ inviteUrl: `${origin(req)}/#/invite/${t}` });
+    const inviteUrl = `${origin(req)}/#/invite/${t}`;
+    const mail = req.body && req.body.email ? await emailInvite(user, inviteUrl, req.user) : null;
+    res.json({ inviteUrl, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
   });
 
   staff.patch('/users/:id', async (req, res) => {
@@ -640,8 +669,8 @@ module.exports = function ranchRouter({ dataDir }) {
       user.email = v;
     }
     if ('position' in b && user.role === 'staff') {
-      if (!['hand', 'manager', 'office'].includes(b.position)) return res.status(400).json({ error: 'Unknown position.' });
-      if (user.id === req.user.id && b.position === 'hand') return res.status(400).json({ error: 'You can’t remove your own manager access.' });
+      if (!POSITIONS.includes(b.position)) return res.status(400).json({ error: 'Unknown position.' });
+      if (user.id === req.user.id && ['hand', 'lessons'].includes(b.position)) return res.status(400).json({ error: 'You can’t remove your own manager access.' });
       user.position = b.position;
     }
     if ('active' in b) {
@@ -774,6 +803,74 @@ module.exports = function ranchRouter({ dataDir }) {
 
   // ---- contact-form messages
   staff.get('/contacts', (_req, res) => res.json({ contacts: db.contacts.slice().reverse() }));
+
+
+  // ---- add several people at once: one per line, "Name, email, phone, position"
+  staff.post('/users/bulk', async (req, res) => {
+    const lines = String((req.body && req.body.lines) || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 50);
+    const results = [];
+    for (const line of lines) {
+      const [name, email, phone, posRaw] = line.split(',').map((x) => (x || '').trim());
+      const e = (email || '').toLowerCase();
+      const posWord = (posRaw || '').toLowerCase();
+      const isOwner = /owner|boarder|client/.test(posWord);
+      const position = isOwner ? undefined : /lesson/.test(posWord) ? 'lessons' : /manager/.test(posWord) ? 'manager' : /office/.test(posWord) ? 'office' : 'hand';
+      if (!name || !validEmail(e)) { results.push({ line, error: 'Needs a name and a valid email.' }); continue; }
+      if (db.users.some((u) => u.email === e)) { results.push({ line, name, error: 'Already in People.' }); continue; }
+      const user = { id: newId(), name: str(name, 100), email: e, phone: str(phone, 40), role: isOwner ? 'owner' : 'staff', position, password: null, active: true, createdAt: now() };
+      db.users.push(user);
+      const t = auth.createInvite(user);
+      const mail = await emailInvite(user, `${origin(req)}/#/invite/${t}`, req.user);
+      results.push({ line, name: user.name, role: user.role, position, emailed: mail.ok, emailError: mail.ok ? undefined : mail.error, inviteUrl: `${origin(req)}/#/invite/${t}` });
+    }
+    await store.save();
+    res.json({ results });
+  });
+
+  // ---- waivers for clients without an account (lesson program, visitors)
+  staff.post('/client-waivers', async (req, res) => {
+    const b = req.body || {};
+    const name = str(b.name, 100), email = str(b.email, 160).toLowerCase(), phone = str(b.phone, 40), note = str(b.note, 300);
+    const docIds = (Array.isArray(b.docIds) ? b.docIds : []).filter((id) => docById(id));
+    if (!name) return res.status(400).json({ error: 'Add the client’s name.' });
+    if (!validEmail(email) && !phone) return res.status(400).json({ error: 'Add an email or a phone number to send it to.' });
+    if (email && !validEmail(email)) return res.status(400).json({ error: 'Check the email address.' });
+    if (!docIds.length) return res.status(400).json({ error: 'Pick at least one document.' });
+    const reqs = docIds.map((docId) => ({ id: newId(), docId, name, email, phone, note, status: 'pending', requestedBy: req.user.name, requestedById: req.user.id, requestedAt: now(), client: true }));
+    db.signRequests.push(...reqs);
+    await store.save();
+    const links = reqs.map((q) => ({ doc: docById(q.docId).title, url: `${origin(req)}/sign.html?doc=${q.docId}&r=${q.id}` }));
+    let mail = null;
+    if (email) {
+      mail = await mailer.sendEmail({
+        to: email,
+        subject: `Please sign before your visit to Winning Ranch`,
+        html: mailer.layout({
+          title: `Hi ${name.split(' ')[0]}`,
+          body: `<p>${req.user.name} from Winning Ranch asked you to sign ${links.length === 1 ? 'this document' : 'these documents'} before you ride:</p>
+            ${links.map((l) => `<p style="margin:14px 0"><a href="${l.url}" style="background:#CC232A;color:#fff;text-decoration:none;font-weight:600;padding:11px 18px;display:inline-block">Sign: ${l.doc}</a></p>`).join('')}
+            ${note ? `<p>${note.replace(/</g, '&lt;')}</p>` : ''}<p>It takes a few minutes on your phone.</p>`,
+        }),
+      });
+    }
+    res.status(201).json({ links, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
+  });
+
+  staff.get('/client-waivers', (req, res) => {
+    const mineOnly = (req.user.position || 'office') === 'lessons';
+    const list = db.signRequests.filter((q) => q.client && (!mineOnly || q.requestedById === req.user.id))
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)).slice(0, 200)
+      .map((q) => ({ id: q.id, doc: (docById(q.docId) || {}).title, name: q.name, email: q.email, phone: q.phone, status: q.status, requestedAt: q.requestedAt, requestedBy: q.requestedBy, signedAt: q.signedAt || null }));
+    res.json({ requests: list, email: mailer.configured() });
+  });
+
+  // Public: what a signing link was sent for, so the form can be filled in
+  r.get('/sign-requests/:id', (req, res) => {
+    const q = db.signRequests.find((x) => x.id === req.params.id && x.status === 'pending');
+    if (!q) return res.status(404).json({ error: 'This request was already signed or cancelled.' });
+    const u = q.userId ? db.users.find((x) => x.id === q.userId) : null;
+    res.json({ docId: q.docId, name: u ? u.name : q.name, email: u ? u.email : q.email, phone: u ? u.phone : q.phone });
+  });
 
   // ---- time clock (shift, hours, reports)
   require('./shifts')({ staff, db, store, newId, now, str });

@@ -330,3 +330,7 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .doc-chip { font-size: .85rem; font-weight: 600; padding: 3px 10px; border: 1px solid var(--line); color: var(--dust); }
 .doc-chip.is-signed { color: #1f6b3a; border-color: #b9dcc6; background: #eef7f1; }
 .doc-chip.is-req { color: #9a5b00; border-color: #f0d9a8; background: #fff6e2; }
+
+.bulk-res { margin: 12px 0 0; padding-left: 18px; }
+.bulk-res li { margin: 4px 0; }
+.ok-line { color: #1f6b3a; font-weight: 600; }

@@ -3,7 +3,7 @@
    Managers and office:               /hours  (day and week views, corrections, settings, reports)
    Reports go by email every morning (yesterday) and on the first day of each pay week (last week). */
 const H = require('../lib/hours');
-const { sendEmail } = require('../lib/mailer');
+const { sendEmail, configured } = require('../lib/mailer');
 
 module.exports = function shifts({ staff, db, store, newId, now, str }) {
   if (!db.shifts) db.shifts = [];
@@ -229,7 +229,7 @@ module.exports = function shifts({ staff, db, store, newId, now, str }) {
       settings: { ...tc() },
       team: team().map((u) => ({ id: u.id, name: u.name, position: u.position || 'office' })),
       log: { daily: Object.entries(db.reportLog.daily).slice(-7), weekly: Object.entries(db.reportLog.weekly).slice(-4) },
-      email: process.env.RESEND_API_KEY ? 'email' : (process.env.REPORT_WEBHOOK_URL || process.env.CONTACT_WEBHOOK_URL) ? 'webhook' : 'none',
+      email: configured(),
     });
   });
 

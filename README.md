@@ -25,7 +25,11 @@ npm start          # http://localhost:3000
 
 1. **Volume** montado em `/data` e a variável `DATA_DIR=/data` (sem isso, tudo some a cada deploy).
 2. **Primeiro login da equipe:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `ADMIN_NAME`. Depois de criado, dá pra tirar a senha das variáveis.
-3. **Emails dos relatórios de horas:** `RESEND_API_KEY` e `REPORT_FROM` (ex. `Winning Ranch <reports@winningranch.com>`). Veja "Ponto e relatórios".
+3. **Email (convites, pedidos de assinatura, relatórios de horas).** É o mesmo esquema do Winning App, então dá pra usar o `app@winningrealty.com`. Copie do serviço do Winning App no Railway:
+   - se ele usa Resend: `RESEND_API_KEY` e `EMAIL_FROM` (`app@winningrealty.com`);
+   - se usa Gmail: `GMAIL_USER`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` e `GMAIL_REFRESH_TOKEN`.
+
+   Coloque também `EMAIL_FROM_NAME=Winning Ranch`, pra aparecer "Winning Ranch" como remetente.
 4. **Opcionais:**
    - `BOOKING_WEBHOOK_URL`, `CONTACT_WEBHOOK_URL` e `REPORT_WEBHOOK_URL`: cópias de reservas, contatos, waivers e relatórios para o integrator.io ou o Zapier.
    - `SEED_DEMO=1`: cria o dono de teste `demo@winningranch.com` / `demo-ranch`. Tire antes de ir ao ar.
@@ -51,13 +55,21 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 - Reservas esperando, waivers para contra-assinar, quem está no relógio.
 - Atalhos para o dashboard.
 
+**Lesson program (Shelby):** não entra nos chats. Na Home tem **Send waivers**: nome, email e telefone do cliente, e o cliente recebe um email com um botão pra cada documento (ou a equipe manda os links por SMS). O formulário já abre preenchido com o nome dele, e **Waivers you sent** mostra quem já assinou.
+
+**Chats como no Winning App:**
+- o chat da equipe;
+- um chat por dono;
+- **grupos**, que qualquer pessoa da equipe cria pelo "+ New" (podem incluir donos, e o criador ou um manager renomeia, adiciona e remove);
+- **mensagens diretas** entre pessoas da equipe.
+
 **Visitantes** veem na tela de login os atalhos para reservar, assinar waivers e conhecer o rancho.
 
 **Documentos no app:** a tela **Documents** mostra o que a pessoa já assinou (com a cópia), o que a ranch pediu e o que ainda pode assinar. A assinatura abre dentro do app, com nome, email, telefone e cavalo já preenchidos, e fica ligada à conta. Manager e office pedem assinatura de dois jeitos:
 - pelo botão **Request signature** no chat do dono, que vira um cartão com botão "Sign";
 - pela aba **People** do dashboard, que também mostra o status dos documentos de cada pessoa.
 
-Não tem cadastro aberto. A equipe cria a pessoa em **People** (no dashboard) e manda o link de acesso por SMS ou email. A pessoa abre, cria a senha e entra no app.
+Não tem cadastro aberto. A equipe cria a pessoa em **People** (no dashboard) e o convite vai sozinho por email. Em **Add several at once** dá pra colar várias pessoas, uma por linha, no formato "nome, email, telefone, posição". Se o email não estiver configurado, o link aparece pra mandar por SMS. A pessoa abre, cria a senha e entra no app.
 
 O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. A versão nas lojas sai embrulhando o mesmo endereço com Capacitor, como o Winning App.
 

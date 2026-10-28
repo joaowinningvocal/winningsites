@@ -7,7 +7,8 @@
   const view = $('#view');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const S = { me: null, home: null, poll: 0, threadPoll: 0, files: [] };
-  const ROLE = { owner: 'Owner', hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' };
+  const ROLE = { owner: 'Owner', hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' };
+  const inChats = () => pos() !== 'lessons';
   const pos = () => (S.me && S.me.role === 'staff' ? S.me.position || 'office' : 'owner');
   const isStaff = () => S.me && S.me.role === 'staff';
 
@@ -76,7 +77,8 @@
     try { S.me = (await api('GET', '/auth/me')).user; } catch (_) { S.me = null; }
     if (!S.me) return login();
     $('#topbar').hidden = false; $('#bottom-nav').hidden = false;
-    $('#fab').hidden = !isStaff();
+    $('#fab').hidden = !isStaff() || !inChats();
+    document.querySelector('[data-nav="messages"]').hidden = !inChats();
     $('#role-text').textContent = ROLE[pos()];
     $('#menu-who').textContent = `${S.me.name}, ${S.me.email}`;
     $('#menu-dash').hidden = !isStaff();
@@ -88,6 +90,7 @@
   function route() {
     clearInterval(S.threadPoll);
     $('#menu').hidden = true; $('#notif').hidden = true;
+    if ($('#sheet').open) $('#sheet').close();
     const h = location.hash || '#/home';
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', h.startsWith('#/' + a.dataset.nav) || (a.dataset.nav === 'messages' && h.startsWith('#/chat'))));
     let m;
@@ -96,6 +99,7 @@
     if (h.startsWith('#/messages')) return messagesView();
     if (h.startsWith('#/checklist')) return checklistView();
     if (h.startsWith('#/documents')) return documentsView();
+    if (h.startsWith('#/sent')) return sentView();
     return homeView();
   }
   window.addEventListener('hashchange', () => S.me && route());
@@ -187,6 +191,11 @@
         <p class="section-label">More</p>
         <div class="tiles">${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html#amenities', 'star', 'Amenities')}${tile('tel:+13054099656', 'phone', 'Call a team member')}
           ${tile('https://www.google.com/maps/dir/?api=1&destination=5360+W+Agate+Ave,+Las+Vegas,+NV', 'pin', 'Directions')}${tile('/contact.html', 'globe', 'Contact')}${tile('/home.html', 'horse', 'Website')}</div>`;
+    } else if (p === 'lessons') {
+      body += `<p class="section-label">Lesson clients</p>`;
+      body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers', sub: 'Lesson packet and liability waiver, by email or text' });
+      body += feature({ href: '#/sent', icon: 'doc', title: 'Waivers you sent', sub: 'See who signed and who still needs to' });
+      body += `<p class="section-label">More</p><div class="tiles">${tile('/waivers.html', 'doc', 'Waivers page')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
     } else {
       if (h.shift !== null && h.shift !== undefined) body += shiftCard(h.shift);
       body += `<p class="section-label">Today</p>`;
@@ -199,6 +208,7 @@
         body += feature({ href: '/admin/#/bookings', icon: 'cal', title: 'Bookings', sub: h.pendingBookings ? `${h.pendingBookings} waiting for you` : 'Nothing waiting', badge: h.pendingBookings || '' });
         body += feature({ href: '/admin/#/waivers', icon: 'doc', title: 'Waivers', sub: h.waiversToCountersign ? `${h.waiversToCountersign} to countersign` : 'All countersigned', badge: h.waiversToCountersign || '' });
         body += feature({ href: '/admin/#/hours', icon: 'clock', title: 'Hours', sub: h.onClock.length ? `On the clock: ${h.onClock.join(', ')}` : 'Nobody on the clock' });
+        body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers to a client', sub: 'For lessons and visitors without an account' });
         body += `<p class="section-label">Dashboard</p><div class="tiles">${tile('/admin/#/pricing', 'money', 'Pricing')}${tile('/admin/#/horses', 'horse', 'Horses')}${tile('/admin/#/people', 'people', 'People')}
           ${tile('/admin/#/stalls', 'stall', 'Stalls')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
       }
@@ -305,10 +315,12 @@
   async function messagesView() {
     view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
     const { chats } = await api('GET', '/chats');
-    view.innerHTML = `<div class="wrap"><h1 style="font-size:1.8rem;margin-bottom:8px">Messages</h1>
+    view.innerHTML = `<div class="wrap"><div class="msgs-head"><h1 style="font-size:1.8rem">Messages</h1>${isStaff() ? '<button class="req-btn" type="button" id="new-chat">+ New</button>' : ''}</div>
       ${chats.map((c) => `<a class="chat-row" href="#/chat/${c.id}"><span class="avatar ${c.type === 'team' ? 'team' : ''}">${esc((c.title || '?').slice(0, 1))}</span>
         <span class="meta"><b>${esc(c.title)}</b><span>${c.last ? `${esc(c.last.by)}: ${esc(c.last.text)}` : c.type === 'team' ? 'Everyone on the ranch team' : 'No messages yet'}</span></span>
         <span class="side">${c.last ? esc(ago(c.last.at)) : ''}${c.unread ? `<br><b class="unread">${c.unread}</b>` : ''}</span></a>`).join('') || '<div class="empty">No chats yet.</div>'}</div>`;
+    const nb = $('#new-chat');
+    if (nb) nb.onclick = newChatSheet;
   }
 
   async function chatView(id) {
@@ -317,7 +329,7 @@
     let last = messages.length ? messages[messages.length - 1].at : '';
     S.files = [];
     view.innerHTML = `<div class="wrap thread">
-      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'team' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span><b>${esc(chat.title)}</b>
+      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'team' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span>${chat.type === 'group' ? `<button class="title-btn" type="button" id="group-info"><b>${esc(chat.title)}</b><small>${chat.members.length} people</small></button>` : `<b>${esc(chat.title)}</b>`}
         ${chat.type === 'owner' && isStaff() && pos() !== 'hand' ? '<button class="req-btn" type="button" id="req-sign">Request signature</button>' : ''}</div>
       <div class="thread__msgs" id="msgs"></div></div>
       <div class="composer"><p class="pending" id="pending" hidden></p><form id="send" novalidate>
@@ -332,6 +344,7 @@
       box.insertAdjacentHTML('beforeend', list.map((m) => {
         const who = !m.mine && team && m.by !== prevBy ? `<span class="who">${esc(m.by)}</span>` : '';
         prevBy = m.mine ? null : m.by;
+        if (m.kind === 'system') { prevBy = null; return `<p class="sys">${esc(m.text)} &middot; ${esc(time(m.at))}</p>`; }
         if (m.kind === 'sign-request') {
           return `<div class="msg ${m.mine ? 'mine' : ''}">${who}<div class="sign-card"><b>Signature requested</b>
             ${m.docs.map((d) => `<div class="sign-card__row"><span>${esc(d.title)}</span>${d.status === 'signed' ? '<em class="ok">Signed</em>' : d.status === 'cancelled' ? '<em>Cancelled</em>' : isStaff() ? '<em>Waiting</em>' : `<a class="sign-go" href="/sign.html?doc=${esc(d.id)}&app=1">Sign</a>`}</div>`).join('')}
@@ -352,6 +365,8 @@
       } catch (_) {}
     };
     S.threadPoll = setInterval(() => { if (!document.hidden) pull(false); }, 4000);
+    const gi = $('#group-info');
+    if (gi) gi.onclick = () => groupSheet(chat);
     const rq = $('#req-sign');
     if (rq) rq.onclick = () => openSheet(`<h2>Request a signature</h2><p class="muted">They get a card in this chat with a Sign button, and it shows in their Documents.</p>
       <form id="rq" novalidate style="margin-top:12px">
@@ -387,6 +402,89 @@
         ta.value = ''; ta.style.height = 'auto'; S.files = []; $('#file').value = ''; $('#pending').hidden = true;
       } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
     };
+  }
+
+  // ------------------------------------------------------------------ groups and direct messages
+  async function newChatSheet() {
+    const { people } = await api('GET', '/chats/people');
+    const team = people.filter((x) => x.role === 'staff');
+    openSheet(`<h2>New chat</h2>
+      <div class="seg2"><button type="button" class="on" data-tab="group">Group</button><button type="button" data-tab="dm">Direct message</button></div>
+      <form id="ng" novalidate>
+        <div class="field"><label for="ng-t">Group name</label><input id="ng-t" placeholder="Morning crew" maxlength="60"></div>
+        <p class="muted" style="margin:4px 0 2px">People</p>
+        ${people.map((x) => `<label class="pick"><input type="checkbox" value="${x.id}"> ${esc(x.name)} <small class="muted">${x.role === 'owner' ? 'owner' : esc((ROLE[x.position] || 'team').toLowerCase())}</small></label>`).join('')}
+        <button class="btn btn--red btn--big" type="submit" style="margin-top:12px">Create group</button><p class="err" id="ng-err"></p></form>
+      <div id="dm" hidden>${team.map((x) => `<button class="chat-row" type="button" data-dm="${x.id}"><span class="avatar">${esc(x.name.slice(0, 1))}</span><span class="meta"><b>${esc(x.name)}</b><span>${esc(ROLE[x.position] || 'Team')}</span></span></button>`).join('') || '<p class="muted">Nobody else on the team yet.</p>'}</div>`, (sheet) => {
+      sheet.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { sheet.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b)); $('#ng', sheet).hidden = b.dataset.tab !== 'group'; $('#dm', sheet).hidden = b.dataset.tab !== 'dm'; }; });
+      $('#ng', sheet).onsubmit = async (e) => {
+        e.preventDefault();
+        const memberIds = [...sheet.querySelectorAll('#ng input[type=checkbox]:checked')].map((x) => x.value);
+        try { const { chat } = await api('POST', '/chats', { type: 'group', title: $('#ng-t', sheet).value, memberIds }); sheet.close(); location.hash = '#/chat/' + chat.id; }
+        catch (ex) { $('#ng-err', sheet).textContent = ex.message; }
+      };
+      sheet.querySelectorAll('[data-dm]').forEach((b) => { b.onclick = async () => {
+        try { const { chat } = await api('POST', '/chats', { type: 'dm', userId: b.dataset.dm }); sheet.close(); location.hash = '#/chat/' + chat.id; } catch (ex) { toast(ex.message); }
+      }; });
+    });
+  }
+
+  async function groupSheet(chat) {
+    const { people } = chat.canManage ? await api('GET', '/chats/people') : { people: [] };
+    const inGroup = new Set(chat.members.map((m) => m.id));
+    openSheet(`<h2>${esc(chat.title)}</h2>
+      ${chat.canManage ? `<form id="gr" class="row-form" novalidate><input id="gr-t" value="${esc(chat.title)}" aria-label="Group name" maxlength="60"><button class="btn" type="submit">Rename</button></form>` : ''}
+      <p class="section-label">${chat.members.length} people</p>
+      ${chat.members.map((m) => `<div class="member"><span class="avatar" style="width:36px;height:36px;font-size:.9rem">${esc(m.name.slice(0, 1))}</span><span>${esc(m.name)}${m.id === S.me.id ? ' (you)' : ''}</span>
+        ${chat.canManage && m.id !== S.me.id ? `<button type="button" class="linkish" data-rm="${m.id}">Remove</button>` : ''}</div>`).join('')}
+      ${chat.canManage && people.some((p) => !inGroup.has(p.id)) ? `<p class="section-label">Add people</p><form id="ga" novalidate>${people.filter((p) => !inGroup.has(p.id)).map((p) => `<label class="pick"><input type="checkbox" value="${p.id}"> ${esc(p.name)}</label>`).join('')}<button class="btn" type="submit" style="margin-top:10px">Add to group</button></form>` : ''}
+      <button class="btn" type="button" id="g-leave" style="margin-top:16px">Leave group</button><p class="err" id="g-err"></p>`, (sheet) => {
+      const err = (ex) => { $('#g-err', sheet).textContent = ex.message; };
+      const done = (msg) => { sheet.close(); toast(msg); route(); };
+      const rn = $('#gr', sheet);
+      if (rn) rn.onsubmit = async (e) => { e.preventDefault(); try { await api('PATCH', `/chats/${chat.id}`, { title: $('#gr-t', sheet).value }); done('Group renamed'); } catch (ex) { err(ex); } };
+      const ga = $('#ga', sheet);
+      if (ga) ga.onsubmit = async (e) => { e.preventDefault(); const userIds = [...ga.querySelectorAll('input:checked')].map((x) => x.value); try { await api('POST', `/chats/${chat.id}/members`, { userIds }); done('Added'); } catch (ex) { err(ex); } };
+      sheet.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { try { await api('DELETE', `/chats/${chat.id}/members/${b.dataset.rm}`); done('Removed'); } catch (ex) { err(ex); } }; });
+      $('#g-leave', sheet).onclick = async () => { if (!confirm('Leave this group?')) return; try { await api('DELETE', `/chats/${chat.id}/members/${S.me.id}`); sheet.close(); location.hash = '#/messages'; } catch (ex) { err(ex); } };
+    });
+  }
+
+  // ------------------------------------------------------------------ waivers for clients (lesson program, office)
+  function clientWaiverSheet() {
+    openSheet(`<h2>Send waivers</h2><p class="muted">The client gets an email with a button for each document. You can also text the links.</p>
+      <form id="cw" novalidate style="margin-top:12px">
+        <div class="field"><label for="cw-n">Client name</label><input id="cw-n" autocomplete="off"></div>
+        <div class="field"><label for="cw-e">Email</label><input id="cw-e" type="email" autocomplete="off"></div>
+        <div class="field"><label for="cw-p">Phone (to text the links)</label><input id="cw-p" type="tel" autocomplete="off"></div>
+        ${[['lesson', 'Adult lesson packet', true], ['liability', 'Adult liability waiver', true], ['boarding', 'Boarding agreement', false]].map(([v, t, on]) => `<label class="pick"><input type="checkbox" value="${v}"${on ? ' checked' : ''}> ${t}</label>`).join('')}
+        <div class="field" style="margin-top:10px"><label for="cw-note">Note (optional)</label><input id="cw-note" placeholder="See you Saturday at 9"></div>
+        <button class="btn btn--red btn--big" type="submit">Send</button><p class="err" id="cw-err"></p></form><div id="cw-done"></div>`, (sheet) => {
+      $('#cw', sheet).onsubmit = async (e) => {
+        e.preventDefault();
+        const body = { name: $('#cw-n', sheet).value, email: $('#cw-e', sheet).value, phone: $('#cw-p', sheet).value, note: $('#cw-note', sheet).value,
+          docIds: [...sheet.querySelectorAll('#cw input[type=checkbox]:checked')].map((x) => x.value) };
+        try {
+          const r = await api('POST', '/admin/client-waivers', body);
+          const text = `Hi ${body.name.split(' ')[0]}, please sign before your lesson at Winning Ranch:\n` + r.links.map((l) => `${l.doc}: ${l.url}`).join('\n');
+          $('#cw', sheet).hidden = true;
+          $('#cw-done', sheet).innerHTML = `<p class="ok-line">${r.emailed ? `Emailed to ${esc(body.email)}.` : body.email ? `The email didn&rsquo;t go out (${esc(r.emailError || 'email not set up')}). Text the links instead.` : 'Ready to text.'}</p>
+            ${body.phone ? `<a class="btn btn--red btn--big" href="sms:${esc(body.phone)}?&body=${encodeURIComponent(text)}">Text the links</a>` : ''}
+            <button class="btn" type="button" id="cw-copy" style="margin-top:8px">Copy the links</button>`;
+          $('#cw-copy', sheet).onclick = async () => { try { await navigator.clipboard.writeText(text); toast('Links copied'); } catch (_) { toast('Couldn’t copy'); } };
+        } catch (ex) { $('#cw-err', sheet).textContent = ex.message; }
+      };
+    });
+  }
+
+  async function sentView() {
+    view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
+    const { requests } = await api('GET', '/admin/client-waivers');
+    view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a><div class="msgs-head"><h1 style="font-size:1.8rem">Waivers you sent</h1><button class="req-btn" type="button" data-act="client-waivers">+ Send</button></div>
+      ${requests.length ? requests.map((q) => `<article class="doc-card ${q.status === 'signed' ? 'signed' : 'requested'}"><div class="doc-card__top"><span class="feature__ic">${ic('pen')}</span>
+        <div><h3>${esc(q.name)}</h3><p>${esc(q.doc)}: ${q.status === 'signed' ? `<b class="ok">signed ${esc(ago(q.signedAt))}</b>` : q.status === 'cancelled' ? 'cancelled' : `waiting, sent ${esc(ago(q.requestedAt))}`}</p>
+        <p>${esc([q.email, q.phone].filter(Boolean).join(', '))}${pos() !== 'lessons' ? ` &middot; by ${esc(q.requestedBy)}` : ''}</p></div></div></article>`).join('')
+        : '<div class="empty">Nothing sent yet. Tap Send to email a client their waivers.</div>'}</div>`;
   }
 
   // ------------------------------------------------------------------ documents
@@ -459,7 +557,7 @@
     const full = e.target.closest('[data-full]');
     if (full) { const lb = $('#lightbox'); $('img', lb).src = full.dataset.full; lb.showModal(); return; }
     const a = e.target.closest('[data-act]');
-    if (a) { if (a.dataset.act === 'post') postSheet(); else shiftAct(a.dataset.act, a); }
+    if (a) { if (a.dataset.act === 'post') postSheet(); else if (a.dataset.act === 'client-waivers') clientWaiverSheet(); else shiftAct(a.dataset.act, a); }
   });
   $('#lightbox').onclick = () => $('#lightbox').close();
   $('#fab').onclick = () => postSheet();

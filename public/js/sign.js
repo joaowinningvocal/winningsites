@@ -197,6 +197,15 @@
 
   // Logged in through the app? Fill in what the account already knows
   async function prefillAccount() {
+    const reqId = params.get('r');
+    if (reqId) {
+      // Opened from a signing link the ranch sent: fill in who it was sent to
+      try {
+        const q = await (await fetch(API + '/sign-requests/' + encodeURIComponent(reqId))).json();
+        const set = (id, v) => { const el = $('#' + id); if (el && !el.value && v) el.value = v; };
+        if (q && q.docId === doc.id) { set('f-name', q.name); set('f-email', q.email); set('f-cell', q.phone); syncVisibility(); }
+      } catch (_) { /* link already used: the form still works */ }
+    }
     try {
       const { user } = await (await fetch(API + '/auth/me')).json();
       if (!user) return;
@@ -249,6 +258,7 @@
     const body = {
       docId: doc.id, fields: values(),
       minor: !!(minor && minor.checked), guardianName: minor && minor.checked ? $('#f-guardian').value : '',
+      requestId: params.get('r') || undefined,
       typedSignature: $('#f-typed').value, agree: $('[name="__agree"]').checked, esign: $('[name="__esign"]').checked,
       signature: pad.toDataURL(),
     };

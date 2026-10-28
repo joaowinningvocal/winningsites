@@ -310,20 +310,24 @@
             <div class="field"><label>Email</label><input name="email" type="email" required></div>
             <div class="field"><label>Phone</label><input name="phone" type="tel"></div>
             <div class="field"><label>Role</label><select name="role"><option value="owner">Horse owner</option><option value="staff">Ranch team</option></select></div>
-            <div class="field"><label>Position (ranch team)</label><select name="position"><option value="hand">Ranch hand: shift, checklist, posts updates</option><option value="manager">Ranch manager: everything, clocks in</option><option value="office" selected>Office: everything, no time clock</option></select></div>
+            <div class="field"><label>Position (ranch team)</label><select name="position"><option value="hand">Ranch hand: shift, checklist, posts updates</option><option value="manager">Ranch manager: everything, clocks in</option><option value="office" selected>Office: everything, no time clock</option><option value="lessons">Lesson program: sends waivers to clients</option></select></div>
             <p class="inline-error full" data-err></p>
             <div class="form-actions full"><button class="btn btn--red btn--sm" type="submit">Add and get login link</button><button class="btn btn--sm btn--ghost" type="button" data-cancel>Cancel</button></div>
             <div class="full" id="new-invite"></div>
-          </form>` : '<p><button class="btn btn--red" data-add>Add a person</button></p>'}
+          </form>` : `<div class="btn-row"><button class="btn btn--red" data-add>Add a person</button><button class="btn" data-bulk>Add several at once</button></div>
+          <form class="panel" id="bulk" hidden novalidate style="margin-top:14px"><h2 style="margin:0 0 6px">Add several at once</h2>
+            <p class="muted">One person per line: name, email, phone, position (ranch hand, ranch manager, office, lesson program or owner). Each one gets an invite email.</p>
+            <div class="field"><textarea name="lines" rows="7" placeholder="Gabi, gabi@example.com, 702-555-0100, ranch manager"></textarea></div>
+            <div class="form-actions"><button class="btn btn--red btn--sm" type="submit">Add and email invites</button></div><div id="bulk-out"></div></form>`}
         <div class="cards" style="margin-top:18px">${users.map((u) => `
           <article class="card" data-id="${u.id}" data-name="${esc(u.name)}">
-            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[u.position] || 'Ranch team') : 'Owner'}</span>
+            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[u.position] || 'Ranch team') : 'Owner'}</span>
               ${!u.active ? '<span class="status status--cancelled">Access off</span>' : !u.hasPassword ? '<span class="status status--invite">Hasn’t logged in yet</span>' : ''}</div>
             <dl><dt>Email</dt><dd>${esc(u.email)}</dd>${u.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(u.phone)}">${esc(u.phone)}</a></dd>` : ''}${u.role === 'owner' ? `<dt>Horses</dt><dd>${esc(u.horses.join(', ') || 'None yet')}</dd>` : ''}</dl>
             <div class="doc-chips">${Object.entries(docStatus[u.id] || {}).map(([, s]) => `<span class="doc-chip ${s.signedAt ? 'is-signed' : s.requested ? 'is-req' : ''}">${esc(s.title)}: ${s.signedAt ? `signed ${esc(fmtDay(s.signedAt))}` : s.requested ? 'requested' : 'not signed'}</span>`).join('')}
               ${u.active && Object.values(docStatus[u.id] || {}).some((s) => !s.signedAt && !s.requested) ? `<select class="pos-select" data-req-doc aria-label="Document to request">${Object.entries(docStatus[u.id]).filter(([, s]) => !s.signedAt && !s.requested).map(([id, s]) => `<option value="${id}">${esc(s.title)}</option>`).join('')}</select><button class="btn btn--sm btn--ghost" type="button" data-request-doc>Request signature</button>` : ''}</div>
-            <div class="btn-row"><button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>
-              ${u.role === 'staff' && u.id !== user.id ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office' }[p]}</option>`).join('')}</select>` : ''}
+            <div class="btn-row"><button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>${!u.hasPassword ? '<button class="btn btn--sm btn--ghost" data-invite-email>Email the invite</button>' : ''}
+              ${u.role === 'staff' && u.id !== user.id ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office', 'lessons'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[p]}</option>`).join('')}</select>` : ''}
               ${u.id !== user.id ? `<button class="btn btn--sm btn--ghost" data-toggle="${u.active ? 0 : 1}">${u.active ? 'Turn off access' : 'Turn on access'}</button>` : ''}</div>
             <div data-invite-box></div>
           </article>`).join('')}</div>
@@ -331,6 +335,12 @@
 
     root.onclick = async (e) => {
       if (e.target.closest('[data-add]')) return peopleView(true);
+      if (e.target.closest('[data-bulk]')) { $('#bulk', root).hidden = false; $('#bulk textarea', root).focus(); return; }
+      const em = e.target.closest('[data-invite-email]');
+      if (em) {
+        try { const r = await api('POST', `/admin/users/${em.closest('.card').dataset.id}/invite`, { email: true }); toast(r.emailed ? 'Invite emailed' : `Not emailed: ${r.emailError}`); } catch (ex) { toast(ex.message); }
+        return;
+      }
       if (e.target.closest('[data-cancel]')) return peopleView();
       const copy = e.target.closest('[data-copy]');
       if (copy) { try { await navigator.clipboard.writeText(copy.dataset.copy); toast('Link copied'); } catch { toast('Select the link and copy it'); } return; }
@@ -359,10 +369,17 @@
       e.preventDefault();
       const f = e.target;
       try {
-        const { user: u, inviteUrl } = await api('POST', '/admin/users', Object.fromEntries(new FormData(f)));
+        if (f.id === 'bulk') {
+          const { results } = await api('POST', '/admin/users/bulk', { lines: f.lines.value });
+          $('#bulk-out', root).innerHTML = `<ul class="bulk-res">${results.map((x) => `<li>${esc(x.name || x.line)}: ${x.error ? `<b class="inline-error">${esc(x.error)}</b>` : x.emailed ? 'added, invite emailed' : `added, invite not emailed (${esc(x.emailError || '')}). <a class="textlink" href="sms:?&body=${encodeURIComponent('Your Winning Ranch login: ' + x.inviteUrl)}">Text it</a>`}</li>`).join('')}</ul>`;
+          f.lines.value = '';
+          toast('Done');
+          return;
+        }
+        const { user: u, inviteUrl, emailed } = await api('POST', '/admin/users', Object.fromEntries(new FormData(f)));
         f.querySelectorAll('input').forEach((i) => { i.value = ''; });
         f.querySelector('[data-err]').textContent = '';
-        $('#new-invite', root).innerHTML = inviteBox(inviteUrl, u.name);
+        $('#new-invite', root).innerHTML = (emailed ? `<p class="ok-line">Invite emailed to ${esc(u.email)}.</p>` : '') + inviteBox(inviteUrl, u.name);
         toast(`${u.name} added`);
       } catch (ex) { f.querySelector('[data-err]').textContent = ex.message; }
     };
