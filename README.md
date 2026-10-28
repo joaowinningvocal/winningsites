@@ -24,12 +24,13 @@ npm start          # http://localhost:3000
 ## Railway
 
 1. **Volume** montado em `/data` e a variável `DATA_DIR=/data` (sem isso, tudo some a cada deploy).
-2. **Primeiro login da equipe:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `ADMIN_NAME`. Depois de criado, dá pra tirar a senha das variáveis.
-3. **Email (convites, pedidos de assinatura, relatórios de horas).** É o mesmo esquema do Winning App, então dá pra usar o `app@winningrealty.com`. Copie do serviço do Winning App no Railway:
-   - se ele usa Resend: `RESEND_API_KEY` e `EMAIL_FROM` (`app@winningrealty.com`);
-   - se usa Gmail: `GMAIL_USER`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` e `GMAIL_REFRESH_TOKEN`.
+2. **Admins:** `ADMIN_EMAILS` com uma lista separada por vírgula, no formato `email:Nome`. Exemplo: `randy@winningrealty.com:Randy Gager,jenna@winningrealty.com:Jenna Gager`. Cada um vira conta office (acesso total) e recebe o convite por email uma vez. Se o email falhar, o link aparece nos logs do deploy no Railway. O antigo `ADMIN_EMAIL` + `ADMIN_PASSWORD` continua funcionando.
+3. **Email (convites, pedidos de assinatura, relatórios de horas).** Usa o mesmo Gmail do Winning App, com estas variáveis:
+   - `GMAIL_USER`: o mesmo valor do Winning App;
+   - `GMAIL_APP_PASSWORD`: o mesmo valor do Winning App;
+   - `GMAIL_FROM_NAME`: `Winning Ranch`, o nome do remetente (não copie o do Winning App).
 
-   Coloque também `EMAIL_FROM_NAME=Winning Ranch`, pra aparecer "Winning Ranch" como remetente.
+   Resend e Gmail API também funcionam (veja `lib/mailer.js`). O Railway só libera Gmail com app password nos planos que permitem SMTP, e como o Winning App já envia assim, o plano de vocês permite.
 4. **Opcionais:**
    - `BOOKING_WEBHOOK_URL`, `CONTACT_WEBHOOK_URL` e `REPORT_WEBHOOK_URL`: cópias de reservas, contatos, waivers e relatórios para o integrator.io ou o Zapier.
    - `SEED_DEMO=1`: cria o dono de teste `demo@winningranch.com` / `demo-ranch`. Tire antes de ir ao ar.

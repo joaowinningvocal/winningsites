@@ -951,5 +951,38 @@ module.exports = function ranchRouter({ dataDir }) {
     res.status(204).end();
   });
 
+  // ---- admins from Railway: ADMIN_EMAILS="randy@winningrealty.com:Randy Gager, jenna@winningrealty.com:Jenna Gager"
+  // Each one becomes an office account (full access) and gets an invite email once.
+  // If email isn't working yet, the invite link is printed in the Railway deploy logs instead.
+  const baseUrl = (process.env.APP_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '')).replace(/\/$/, '');
+  if (!db.bootInvites) db.bootInvites = {};
+  const bootAdmins = String(process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => {
+    const [email, name] = x.split(':').map((y) => (y || '').trim());
+    return { email: email.toLowerCase(), name: name || email.split('@')[0] };
+  }).filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email));
+  let changed = false;
+  for (const a of bootAdmins) {
+    let u = db.users.find((x) => x.email === a.email);
+    if (!u) {
+      u = { id: newId(), name: a.name, email: a.email, phone: '', role: 'staff', position: 'office', password: null, active: true, createdAt: now() };
+      db.users.push(u); changed = true;
+      console.log('[ranch] admin account created for', a.email);
+    } else if (u.role !== 'staff' || !['office', 'manager'].includes(u.position || 'office') || u.active === false) {
+      Object.assign(u, { role: 'staff', position: 'office', active: true }); changed = true;
+    }
+  }
+  if (changed) store.save();
+  setTimeout(async () => {
+    for (const a of bootAdmins) {
+      const u = db.users.find((x) => x.email === a.email);
+      if (!u || u.password || db.bootInvites[a.email]) continue;
+      if (!baseUrl) { console.log(`[ranch] set APP_BASE_URL so the invite for ${a.email} has a link`); continue; }
+      const url = `${baseUrl}/#/invite/${auth.createInvite(u)}`;
+      const mail = mailer.configured() === 'none' ? { ok: false, error: 'email not set up' } : await emailInvite(u, url, null);
+      if (mail.ok) { db.bootInvites[a.email] = now(); store.save(); console.log('[ranch] invite emailed to', a.email); }
+      else console.log(`[ranch] invite for ${a.email} not emailed (${mail.error}). Link: ${url}`);
+    }
+  }, 2000).unref();
+
   return r;
 };
