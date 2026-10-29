@@ -24,17 +24,19 @@ npm start          # http://localhost:3000
 ## Railway
 
 1. **Volume** montado em `/data` e a variável `DATA_DIR=/data` (sem isso, tudo some a cada deploy).
-2. **Admins:** `ADMIN_EMAILS` com uma lista separada por vírgula, no formato `email:Nome`. Exemplo: `randy@winningrealty.com:Randy Gager,jenna@winningrealty.com:Jenna Gager`. Cada um vira conta office (acesso total) e recebe o convite por email uma vez. Se o email falhar, o link aparece nos logs do deploy no Railway. O antigo `ADMIN_EMAIL` + `ADMIN_PASSWORD` continua funcionando.
-3. **Email (convites, pedidos de assinatura, relatórios de horas).** Usa o mesmo Gmail do Winning App, com estas variáveis:
+2. **Conta master:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `ADMIN_NAME`. A conta é criada já com essa senha e tem acesso total. Ninguém mais consegue desativar, mudar ou gerar link de login pra ela. Se esquecer a senha, troque o `ADMIN_PASSWORD` no Railway e faça o deploy.
+3. **Admins:** `ADMIN_EMAILS` com uma lista separada por vírgula, no formato `email:Nome`. Exemplo: `randy@winningrealty.com:Randy Gager,jenna@winningrealty.com:Jenna Gager`. Cada um vira conta office (acesso total) e recebe o convite por email uma vez. Se o email falhar, o link aparece nos logs do deploy no Railway. 
+4. **Email (convites, pedidos de assinatura, relatórios de horas).** Usa o mesmo Gmail do Winning App, com estas variáveis:
    - `GMAIL_USER`: o mesmo valor do Winning App;
    - `GMAIL_APP_PASSWORD`: o mesmo valor do Winning App;
    - `GMAIL_FROM_NAME`: `Winning Ranch`, o nome do remetente (não copie o do Winning App).
 
    Resend e Gmail API também funcionam (veja `lib/mailer.js`). O Railway só libera Gmail com app password nos planos que permitem SMTP, e como o Winning App já envia assim, o plano de vocês permite.
-4. **Opcionais:**
+5. **Assistente das baias:** `ANTHROPIC_API_KEY` com uma chave da API da Anthropic (console.anthropic.com). Sem ela, o Stall board funciona igual, só sem o assistente (fica o "Find stalls").
+6. **Opcionais:**
    - `BOOKING_WEBHOOK_URL`, `CONTACT_WEBHOOK_URL` e `REPORT_WEBHOOK_URL`: cópias de reservas, contatos, waivers e relatórios para o integrator.io ou o Zapier.
    - `SEED_DEMO=1`: cria o dono de teste `demo@winningranch.com` / `demo-ranch`. Tire antes de ir ao ar.
-5. A variável `REVIEW_PASSWORD` não é mais usada e pode ser apagada.
+7. A variável `REVIEW_PASSWORD` não é mais usada e pode ser apagada.
 
 ## O app (`/`)
 
@@ -59,7 +61,9 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 **Lesson program (Shelby):** não entra nos chats. Na Home tem **Send waivers**: nome, email e telefone do cliente, e o cliente recebe um email com um botão pra cada documento (ou a equipe manda os links por SMS). O formulário já abre preenchido com o nome dele, e **Waivers you sent** mostra quem já assinou.
 
 **Chats como no Winning App:**
-- o chat da equipe;
+- **Barn Management**: Jenna, Randy e Gabi. Começa com quem é office ou ranch manager, e quem está no chat adiciona ou tira pessoas pelo nome do chat;
+- **Winning Ranch - Workers**: toda a equipe (ranch hands e managers) mais o Barn Management. É o antigo chat da equipe, com o histórico;
+- **Winning Ranch - Boarders**: todos os donos de cavalo mais o Barn Management. Cada dono novo entra sozinho;
 - um chat por dono;
 - **grupos**, que qualquer pessoa da equipe cria pelo "+ New" (podem incluir donos, e o criador ou um manager renomeia, adiciona e remove);
 - **mensagens diretas** entre pessoas da equipe.
@@ -80,7 +84,8 @@ O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. 
 |---|---|
 | My shift | Ponto e checklist (hand e manager) |
 | Post update | Postar fotos e vídeos de um cavalo |
-| Bookings | Pedidos de reserva: confirmar, recusar, concluir, cancelar |
+| Bookings | Pedidos de reserva do site: confirmar, recusar, concluir, cancelar |
+| Stall board | Quem está em cada baia por dia, as próximas duas semanas, adicionar cavalos (mensal, por noite ou nosso), "Find stalls" e o assistente |
 | Hours | Turnos do dia, correções, semana de pagamento, CSV, configurações do ponto |
 | Horses | Cavalos, dono e baia |
 | People | Donos e equipe, posição (ranch hand, ranch manager, office) e links de acesso |
@@ -107,9 +112,24 @@ Todo dia vai por email o relatório do dia anterior. No primeiro dia da semana d
 
 O sistema não calcula hora extra nem salário: só marca dias acima de 8 h e semanas acima de 40 h.
 
+## Stall board
+
+Em `/admin/#/board` (e no atalho **Stall board** da Home do app, para manager e office).
+
+- **A baia como na planilha da Jenna:** 1 a 10 do lado direito (1 embaixo, perto da porta), 11 a 20 do lado esquerdo, então a n fica de frente para a n + 10. A 1 não está em uso, a 10 é só pra pônei e a 20 é a curta (12' x 22'). Pônei e tamanho se mudam em **Stalls**.
+- **Bloquear uma baia:** toque na baia, **Add a horse to this stall**, e escolha **Monthly boarder** (sem data de saída) ou **Nightly** (chegada e saída). Dá pra pôr vários cavalos de uma vez, cada um na sua baia.
+- **Nossos cavalos** (marcados como "one of our own horses"): seguram a baia, mas o site continua oferecendo ela e uma reserva pode ir por cima. Aí o board avisa "Move our horse out".
+- **Saída:** **Moves out** fecha a estadia naquele dia. **Remove** é pra engano.
+- **Find stalls:** quantos cavalos, quantos pôneis e as datas. Mostra as melhores baias livres, juntas (lado a lado, depois de frente pelo corredor), e reserva com um toque.
+- **Assistente:** "I have 5 horses coming in Nov 15 - Nov 17, what stalls can I put them in?". Ele escolhe as baias com o mesmo cálculo do Find stalls, reserva na hora e mostra **Undo**. Grupos diferentes ("3 do Smith e 2 do Jones") ficam cada um junto. Usa o Claude Opus 5.5 (`lib/stall-ai.js`).
+- Na primeira vez, o board já vem com a planilha da Jenna: boarders nas baias 2 a 9 e 12, nossos cavalos de 13 a 19, todos sem nome. É só tocar e pôr o nome.
+- Reservas do site (pendentes e confirmadas) também aparecem e bloqueiam. A aba **Bookings** mostra só os pedidos do site.
+
 ## Trocar o mapa
 
 Substitua `public/img/ranch-map.jpg` (e `ranch-map-small.jpg`) e ajuste `lib/ranch-layout.js`: o tamanho da imagem, o retângulo de cada baia e as áreas sem reserva, tudo em pixels da imagem. Preços, fotos e status das baias continuam como estão.
+
+A arte atual tem a numeração antiga pintada (ímpares à esquerda, pares à direita). Por isso o site desenha o número certo por cima de cada placa (o `plate` de cada baia em `lib/ranch-layout.js`). Numa arte nova já com 11 a 20 à esquerda e 1 a 10 à direita, é só apagar os `plate`.
 
 ## Documentos para assinar
 
@@ -147,6 +167,7 @@ server.js            serve o app, o site e a API
 routes/ranch.js      baias, reservas, login, cavalos, updates, preços, waivers, contato
 routes/shifts.js     ponto, checklist, horas, relatórios
 routes/chats.js      chats do app e dados da Home
+routes/board.js      stall board: estadias mensais e por noite, find stalls, assistente
 lib/                 store JSON, login, layout do mapa, documentos, cálculo de horas, email
 public/index.html    o app (public/app/ tem o CSS, o JS e o manifest)
 public/admin/        o dashboard

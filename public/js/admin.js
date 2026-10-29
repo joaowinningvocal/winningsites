@@ -38,7 +38,7 @@
     if (!name || !allowed.includes(name)) name = pos === 'office' ? 'post' : 'shift';
     tabs.querySelectorAll('a').forEach((a) => { if (a.getAttribute('href') === '#/' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     if (pos !== 'hand') refreshPending();
-    const views = { shift: () => window.WRShift.view(root), hours: () => window.WRHours.view(root), post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), stalls: stallsView, waivers: waiversView };
+    const views = { shift: () => window.WRShift.view(root), hours: () => window.WRHours.view(root), post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), board: () => window.WRBoard.view(root), stalls: stallsView, waivers: waiversView };
     try { await (views[name] || postView)(); } catch (ex) {
       if (ex.status === 401) { user = null; return route(); }
       root.innerHTML = `<div class="wrap"><div class="empty-box"><h2>That didn’t load</h2><p>${esc(ex.message)}</p></div></div>`;
@@ -321,14 +321,14 @@
             <div class="form-actions"><button class="btn btn--red btn--sm" type="submit">Add and email invites</button></div><div id="bulk-out"></div></form>`}
         <div class="cards" style="margin-top:18px">${users.map((u) => `
           <article class="card" data-id="${u.id}" data-name="${esc(u.name)}">
-            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[u.position] || 'Ranch team') : 'Owner'}</span>
+            <div class="card__top"><h3>${esc(u.name)}</h3><span class="muted">${u.master ? 'Master' : u.role === 'staff' ? ({ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[u.position] || 'Ranch team') : 'Owner'}</span>
               ${!u.active ? '<span class="status status--cancelled">Access off</span>' : !u.hasPassword ? '<span class="status status--invite">Hasn’t logged in yet</span>' : ''}</div>
             <dl><dt>Email</dt><dd>${esc(u.email)}</dd>${u.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(u.phone)}">${esc(u.phone)}</a></dd>` : ''}${u.role === 'owner' ? `<dt>Horses</dt><dd>${esc(u.horses.join(', ') || 'None yet')}</dd>` : ''}</dl>
             <div class="doc-chips">${Object.entries(docStatus[u.id] || {}).map(([, s]) => `<span class="doc-chip ${s.signedAt ? 'is-signed' : s.requested ? 'is-req' : ''}">${esc(s.title)}: ${s.signedAt ? `signed ${esc(fmtDay(s.signedAt))}` : s.requested ? 'requested' : 'not signed'}</span>`).join('')}
               ${u.active && Object.values(docStatus[u.id] || {}).some((s) => !s.signedAt && !s.requested) ? `<select class="pos-select" data-req-doc aria-label="Document to request">${Object.entries(docStatus[u.id]).filter(([, s]) => !s.signedAt && !s.requested).map(([id, s]) => `<option value="${id}">${esc(s.title)}</option>`).join('')}</select><button class="btn btn--sm btn--ghost" type="button" data-request-doc>Request signature</button>` : ''}</div>
-            <div class="btn-row"><button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>${!u.hasPassword ? '<button class="btn btn--sm btn--ghost" data-invite-email>Email the invite</button>' : ''}
-              ${u.role === 'staff' && u.id !== user.id ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office', 'lessons'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[p]}</option>`).join('')}</select>` : ''}
-              ${u.id !== user.id ? `<button class="btn btn--sm btn--ghost" data-toggle="${u.active ? 0 : 1}">${u.active ? 'Turn off access' : 'Turn on access'}</button>` : ''}</div>
+            <div class="btn-row">${u.master && !user.master ? '' : `<button class="btn btn--sm btn--ghost" data-invite>${u.hasPassword ? 'New login link' : 'Get login link'}</button>${!u.hasPassword ? '<button class="btn btn--sm btn--ghost" data-invite-email>Email the invite</button>' : ''}`}
+              ${u.role === 'staff' && u.id !== user.id && !u.master ? `<select class="pos-select" data-position aria-label="Position">${['hand', 'manager', 'office', 'lessons'].map((p) => `<option value="${p}"${u.position === p ? ' selected' : ''}>${{ hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' }[p]}</option>`).join('')}</select>` : ''}
+              ${u.id !== user.id && !u.master ? `<button class="btn btn--sm btn--ghost" data-toggle="${u.active ? 0 : 1}">${u.active ? 'Turn off access' : 'Turn on access'}</button>` : ''}</div>
             <div data-invite-box></div>
           </article>`).join('')}</div>
       </div>`;
@@ -396,7 +396,7 @@
     const row = (s) => `
       <div class="stall-row" data-id="${s.id}">
         <button type="button" data-toggle-row aria-expanded="${openStall === s.id}">
-          <strong>${esc(s.name)}${s.smaller ? ' <small class="muted">(smaller)</small>' : ''}</strong>
+          <strong>${esc(s.name)}${s.smaller ? ' <small class="muted">(smaller)</small>' : ''}${s.ponyOnly ? ' <small class="muted">(ponies only)</small>' : ''}</strong>
           <span class="hide-sm">${s.nightly != null ? money(s.nightly) + ' / night' : '<span class="tbd">no nightly price</span>'}</span>
           <span class="hide-sm">${s.photos.length} photo${s.photos.length === 1 ? '' : 's'}</span>
           <span>${s.horse ? esc(s.horse.name) : s.status === 'unavailable' ? 'Not in use' : 'Open'}</span>
@@ -408,6 +408,7 @@
             <div class="field"><label>Size</label><input name="size" value="${esc(s.size)}" placeholder="12' x 24'"></div>
             <div class="field"><label>Status</label><select name="status"><option value="available"${s.status === 'available' ? ' selected' : ''}>In use</option><option value="unavailable"${s.status === 'unavailable' ? ' selected' : ''}>Not in use</option></select></div>
             <div class="field full"><label>Description</label><textarea name="description" rows="2">${esc(s.description)}</textarea></div>
+            ${s.group === 'main' ? `<label class="choice full"><input type="checkbox" name="ponyOnly"${s.ponyOnly ? ' checked' : ''}><span>Ponies only</span></label>` : ''}
             <label class="choice full"><input type="checkbox" name="applyToGroup"><span>Use this size for every ${s.group === 'main' ? 'main barn' : 'outdoor'} stall${s.smaller ? ' like this one (smaller)' : s.group === 'main' ? ' (except the smaller one)' : ''}</span></label>
             <p class="inline-error full" data-err></p>
             <div class="form-actions full"><button class="btn btn--red btn--sm" type="submit">Save stall</button></div>
@@ -449,7 +450,7 @@
       err.textContent = '';
       const fd = Object.fromEntries(new FormData(f));
       try {
-        const body = { size: fd.size, status: fd.status, description: fd.description, applyToGroup: f.applyToGroup.checked };
+        const body = { size: fd.size, status: fd.status, description: fd.description, applyToGroup: f.applyToGroup.checked, ...(f.ponyOnly ? { ponyOnly: f.ponyOnly.checked } : {}) };
         const res = await api('PATCH', '/admin/stalls/' + f.dataset.stallForm, body);
         toast(res.updated.length > 1 ? `Size saved for ${res.updated.length} stalls` : 'Stall saved');
         stallsView();

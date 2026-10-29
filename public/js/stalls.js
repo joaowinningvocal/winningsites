@@ -133,8 +133,13 @@
       const sel = state.selected.has(s.id);
       const { x, y, w, h } = s.shape;
       const label = `${s.name}. ${STATUS_TEXT[s.availability](state.range)}${s.nightly != null ? `. ${money(s.nightly)} per night` : ''}${sel ? '. In your booking' : ''}`;
+      // The real stall number, painted over the old number on the map art
+      const p = s.shape.plate;
+      const plate = p ? `<g class="plate${s.availability === 'unavailable' ? ' is-off' : ''}" aria-hidden="true"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="3"/>
+        <text x="${p.x + p.w / 2}" y="${p.y + p.h / 2 + (s.availability === 'unavailable' && p.h > 34 ? -1 : 7)}">${s.number}</text>
+        ${s.availability === 'unavailable' && p.h > 34 ? `<text class="plate__sub" x="${p.x + p.w / 2}" y="${p.y + p.h / 2 + 13}">NOT IN USE</text>` : ''}</g>` : '';
       html += `<g class="spot is-${s.availability}${sel ? ' is-selected' : ''}" data-id="${s.id}" tabindex="0" role="button" aria-label="${esc(label)}">
-        <rect class="hit" x="${x}" y="${y}" width="${w}" height="${h}" rx="3"/>
+        ${plate}<rect class="hit" x="${x}" y="${y}" width="${w}" height="${h}" rx="3"/>
         ${sel ? `<g class="badge" transform="translate(${x + w - 9} ${y + 9})"><circle r="9" fill="#CC232A" stroke="#fff" stroke-width="2"/><path d="M-4 0l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>` : ''}
       </g>`;
     }
@@ -147,6 +152,14 @@
     const scale = size / MAP_W;
     const px = -(cx * scale - boxW / 2), py = -(cy * scale - boxH / 2);
     return `background-size:${size}px auto;background-position:${px}px ${py}px`;
+  }
+
+  // The real stall number over the painted one, inside a zoomed view of the map (same math as zoomStyle)
+  function zoomPlate(s, cx, cy, boxW, boxH, zoom) {
+    const p = s && s.shape && s.shape.plate;
+    if (!p) return '';
+    const left = p.x * zoom - (cx * zoom - boxW / 2), top = p.y * zoom - (cy * zoom - boxH / 2);
+    return `<span class="zoom-plate${s.availability === 'unavailable' ? ' is-off' : ''}" style="left:${left}px;top:${top}px;width:${p.w * zoom}px;height:${p.h * zoom}px;font-size:${Math.round(19 * zoom)}px">${s.number}</span>`;
   }
 
   function centerOf(item) {
@@ -174,7 +187,7 @@
       media = stall.photos.map((p, i) => `<img src="${esc(p.url)}" alt=""${i === 0 ? ' class="is-current"' : ''}>`).join('')
         + (stall.photos.length > 1 ? `<span class="peek__dots">${stall.photos.map((_, i) => `<i${i === 0 ? ' class="is-current"' : ''}></i>`).join('')}</span>` : '');
     } else {
-      media = `<div class="zoom" style="${zoomStyle(geo.cx, geo.cy, boxW, mediaH, zoom)}"></div>`;
+      media = `<div class="zoom" style="${zoomStyle(geo.cx, geo.cy, boxW, mediaH, zoom)}">${zoomPlate(stall, geo.cx, geo.cy, boxW, mediaH, zoom)}</div>`;
     }
 
     let body;
@@ -309,7 +322,9 @@
     const zoomEl = $('#sheet-zoom', els.sheet);
     if (zoomEl) {
       const box = zoomEl.getBoundingClientRect();
-      zoomEl.setAttribute('style', zoomStyle(geo.cx, geo.cy, box.width, box.height, Math.min(4, (box.height * 0.55) / geo.h)));
+      const z = Math.min(4, (box.height * 0.55) / geo.h);
+      zoomEl.setAttribute('style', zoomStyle(geo.cx, geo.cy, box.width, box.height, z));
+      zoomEl.innerHTML = zoomPlate(s, geo.cx, geo.cy, box.width, box.height, z);
     }
   }
 

@@ -1,6 +1,10 @@
 /* Messages for the Winning Ranch app (same idea as the Winning App's chats).
-   - "Winning Ranch Team" chat: everyone on the ranch team
+   Three fixed chats (channels):
+   - "Barn Management": the people in it (Jenna, Randy, Gabi); its members add and remove people
+   - "Winning Ranch - Workers": the whole ranch team + Barn Management (this was the old team chat)
+   - "Winning Ranch - Boarders": every horse owner + Barn Management
    - One private chat per owner: that owner + the whole ranch team
+   - Groups and direct messages made by the team
    Photos are stored privately and only open for people in the chat.
    Also serves GET /app/home, the data behind the app's Home screen. */
 const path = require('path');
@@ -12,36 +16,70 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
-  if (!db.chats.some((c) => c.type === 'team')) { db.chats.push({ id: newId(), type: 'team', title: 'Winning Ranch Team', createdAt: now() }); store.save(); }
 
   const isStaff = (u) => u && u.role === 'staff';
   // The team in chats = staff except the lesson program (they only send waivers)
   const isTeam = (u) => isStaff(u) && (u.position || 'office') !== 'lessons';
   const isLead = (u) => isStaff(u) && ['manager', 'office'].includes(u.position || 'office');
+
+  // ---------------------------------------------------------------- the fixed chats
+  const CHANNELS = [
+    { key: 'management', title: 'Barn Management', about: 'Barn management team' },
+    { key: 'workers', title: 'Winning Ranch - Workers', about: 'The ranch team and Barn Management' },
+    { key: 'boarders', title: 'Winning Ranch - Boarders', about: 'Every horse owner and Barn Management' },
+  ];
+  const channel = (key) => db.chats.find((c) => c.type === 'channel' && c.key === key);
+  {
+    let changed = false;
+    // The old "Winning Ranch Team" chat becomes Workers, history and all
+    const team = db.chats.find((c) => c.type === 'team');
+    if (team && !channel('workers')) { Object.assign(team, { type: 'channel', key: 'workers', title: 'Winning Ranch - Workers' }); changed = true; }
+    for (const ch of CHANNELS) {
+      if (channel(ch.key)) continue;
+      const c = { id: newId(), type: 'channel', key: ch.key, title: ch.title, createdAt: now() };
+      // Barn Management starts with the office and the ranch managers; its members change it in the app
+      if (ch.key === 'management') c.members = db.users.filter((u) => u.active !== false && isLead(u)).map((u) => u.id);
+      db.chats.push(c);
+      changed = true;
+    }
+    if (changed) store.save();
+  }
+  // If Barn Management is ever empty (first deploy before the admins exist), it starts again from the office and managers
+  const management = () => {
+    const c = channel('management');
+    if (!c.members.length) c.members = db.users.filter((u) => u.active !== false && isLead(u)).map((u) => u.id);
+    return c.members;
+  };
+  const isManagement = (u) => !!u && management().includes(u.id);
+  const inChannel = (u, c) => u.active !== false && (c.key === 'management' ? isManagement(u)
+    : c.key === 'workers' ? isTeam(u) || isManagement(u)
+      : c.key === 'boarders' ? u.role === 'owner' || isManagement(u) : false);
+  const channelMembers = (c) => db.users.filter((u) => inChannel(u, c));
   const ownerChat = (ownerId) => {
     let c = db.chats.find((x) => x.type === 'owner' && x.ownerId === ownerId);
     if (!c) { c = { id: newId(), type: 'owner', ownerId, createdAt: now() }; db.chats.push(c); store.save(); }
     return c;
   };
   const canSee = (u, c) => !!(u && c && (
-    (c.type === 'team' && isTeam(u))
+    (c.type === 'channel' && inChannel(u, c))
     || (c.type === 'owner' && (isTeam(u) || c.ownerId === u.id))
     || ((c.type === 'group' || c.type === 'dm') && (c.members || []).includes(u.id))));
-  const titleFor = (u, c) => (c.type === 'team' || c.type === 'group' ? c.title
+  const titleFor = (u, c) => (c.type === 'channel' || c.type === 'group' ? c.title
     : c.type === 'dm' ? nameOf((c.members || []).find((id) => id !== u.id))
       : isStaff(u) ? ((db.users.find((x) => x.id === c.ownerId) || {}).name || 'Owner') : 'Winning Ranch');
-  const canManage = (u, c) => c.type === 'group' && (c.createdBy === u.id || isLead(u));
+  const canManage = (u, c) => (c.type === 'group' && (c.createdBy === u.id || isLead(u))) || (c.type === 'channel' && c.key === 'management' && isManagement(u));
   function sys(c, text) { db.messages.push({ id: newId(), chatId: c.id, userId: null, kind: 'system', text, media: [], at: now() }); }
   const lastRead = (u, cid) => ((db.reads[u.id] || {})[cid]) || '';
   const nameOf = (id) => (db.users.find((x) => x.id === id) || {}).name || 'Someone';
 
   function visibleChats(u) {
     const mine = db.chats.filter((c) => (c.type === 'group' || c.type === 'dm') && (c.members || []).includes(u.id));
+    const channels = CHANNELS.map((ch) => channel(ch.key)).filter((c) => inChannel(u, c));
     if (isTeam(u)) {
       db.users.filter((x) => x.role === 'owner' && x.active !== false).forEach((o) => ownerChat(o.id));
-      return db.chats.filter((c) => c.type === 'team' || (c.type === 'owner' && (db.users.find((x) => x.id === c.ownerId) || {}).active !== false)).concat(mine);
+      return channels.concat(db.chats.filter((c) => c.type === 'owner' && (db.users.find((x) => x.id === c.ownerId) || {}).active !== false), mine);
     }
-    return u.role === 'owner' ? [ownerChat(u.id), ...mine] : [];
+    return u.role === 'owner' ? [...channels, ownerChat(u.id), ...mine] : channels;
   }
 
   function chatOut(u, c) {
@@ -49,8 +87,10 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const last = msgs[msgs.length - 1];
     const seen = lastRead(u, c.id);
     return {
-      id: c.id, type: c.type, title: titleFor(u, c), ownerId: isStaff(u) ? c.ownerId : undefined,
-      members: c.type === 'group' ? (c.members || []).map((id) => ({ id, name: nameOf(id) })) : undefined,
+      id: c.id, type: c.type, key: c.key, title: titleFor(u, c), ownerId: isStaff(u) ? c.ownerId : undefined,
+      members: c.type === 'group' ? (c.members || []).map((id) => ({ id, name: nameOf(id) }))
+        : c.type === 'channel' ? channelMembers(c).map((x) => ({ id: x.id, name: x.name })) : undefined,
+      about: c.type === 'channel' ? CHANNELS.find((ch) => ch.key === c.key).about : undefined,
       canManage: canManage(u, c),
       last: last ? { text: last.text || (last.media.length ? 'Photo' : ''), at: last.at, by: last.userId === u.id ? 'You' : nameOf(last.userId) } : null,
       unread: msgs.filter((m) => m.userId !== u.id && m.at > seen).length,
@@ -80,8 +120,10 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
 
   // ---------------------------------------------------------------- chats
   r.get('/chats', auth.requireUser, (req, res) => {
+    // The fixed chats stay on top in their order, the rest newest first
+    const pin = (c) => (c.type === 'channel' ? CHANNELS.findIndex((ch) => ch.key === c.key) : 9);
     const list = visibleChats(req.user).map((c) => chatOut(req.user, c))
-      .sort((a, b) => (b.last ? b.last.at : '').localeCompare(a.last ? a.last.at : '') || (a.type === 'team' ? -1 : 1));
+      .sort((a, b) => pin(a) - pin(b) || (b.last ? b.last.at : '').localeCompare(a.last ? a.last.at : ''));
     res.json({ chats: list });
   });
 
@@ -117,7 +159,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
 
   r.patch('/chats/:id', auth.requireUser, async (req, res) => {
     const c = db.chats.find((x) => x.id === req.params.id);
-    if (!canSee(req.user, c) || !canManage(req.user, c)) return res.status(403).json({ error: 'Only the group’s creator or a manager can change it.' });
+    if (!canSee(req.user, c) || !canManage(req.user, c) || c.type !== 'group') return res.status(403).json({ error: 'Only the group’s creator or a manager can change it.' });
     const title = str(req.body && req.body.title, 60);
     if (!title) return res.status(400).json({ error: 'Give the group a name.' });
     c.title = title;
@@ -129,7 +171,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   r.post('/chats/:id/members', auth.requireUser, async (req, res) => {
     const c = db.chats.find((x) => x.id === req.params.id);
     if (!canSee(req.user, c) || !canManage(req.user, c)) return res.status(403).json({ error: 'Only the group’s creator or a manager can add people.' });
-    const ok = new Set(people(req.user).map((x) => x.id));
+    const ok = new Set(people(req.user).filter((x) => c.type === 'group' || isTeam(x)).map((x) => x.id));
     const add = [...new Set((req.body && req.body.userIds) || [])].filter((id) => ok.has(id) && !c.members.includes(id));
     if (!add.length) return res.status(400).json({ error: 'Pick someone who isn’t in the group yet.' });
     c.members.push(...add);
@@ -141,8 +183,10 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   r.delete('/chats/:id/members/:userId', auth.requireUser, async (req, res) => {
     const c = db.chats.find((x) => x.id === req.params.id);
     const self = req.params.userId === req.user.id;
-    if (!canSee(req.user, c) || c.type !== 'group' || (!self && !canManage(req.user, c))) return res.status(403).json({ error: 'You can’t remove people from this group.' });
+    const mgmt = !!c && c.type === 'channel' && c.key === 'management';
+    if (!canSee(req.user, c) || !(c.type === 'group' || mgmt) || (!self && !canManage(req.user, c))) return res.status(403).json({ error: 'You can’t remove people from this group.' });
     if (!c.members.includes(req.params.userId)) return res.status(404).json({ error: 'Not in the group.' });
+    if (mgmt && c.members.length === 1) return res.status(400).json({ error: 'Barn Management needs at least one person.' });
     c.members = c.members.filter((id) => id !== req.params.userId);
     sys(c, self ? `${req.user.name} left the group` : `${req.user.name} removed ${nameOf(req.params.userId)}`);
     await store.save();

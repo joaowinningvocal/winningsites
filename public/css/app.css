@@ -334,3 +334,107 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .bulk-res { margin: 12px 0 0; padding-left: 18px; }
 .bulk-res li { margin: 4px 0; }
 .ok-line { color: #1f6b3a; font-weight: 600; }
+
+/* ==========================================================================
+   Stall board (#/board)
+   ========================================================================== */
+.board-page .panel { margin-bottom: 18px; }
+.board-page .panel + .panel { margin-top: 0; }
+.board-day { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.board-day input[type="date"] { font: 600 1rem var(--text); border: 1px solid var(--line); padding: 7px 10px; background: var(--paper); color: var(--ink); }
+.board-day__label { margin-left: 6px; font-size: 1.05rem; }
+.board-sub { font-size: 1.1rem; margin: 22px 0 8px; }
+.board-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 0 0; font-size: .92rem; color: var(--dust); }
+.board-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 16px; height: 16px; border: 1px solid var(--line); display: inline-block; }
+
+/* The barn: left side, aisle, right side; stalls 1 and 11 at the bottom by the doors */
+.barn { display: grid; grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr); gap: 6px 0; max-width: 760px; }
+.barn__side { font-size: .82rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--dust); text-align: center; }
+.barn__aisle { background: var(--sand-soft); }
+.barn__aisle--head, .barn__aisle--foot { background: none; font-size: .72rem; color: var(--dust); text-align: center; text-transform: uppercase; letter-spacing: .05em; align-self: center; }
+.outdoor { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+
+.stall-tile {
+  position: relative; display: grid; gap: 1px; align-content: center; text-align: left; min-height: 64px; padding: 8px 10px 8px 46px;
+  font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line); cursor: pointer;
+}
+.stall-tile:hover:not(:disabled) { border-color: var(--ink); }
+.stall-tile:focus-visible { outline: 3px solid var(--red); outline-offset: 1px; }
+.stall-tile__num { position: absolute; left: 0; top: 0; bottom: 0; width: 38px; display: grid; place-items: center; font: 600 1.05rem var(--display); background: rgba(14,14,14,.06); }
+.stall-tile__who { font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.stall-tile__sub, .stall-tile__tags { font-size: .84rem; color: var(--dust); line-height: 1.25; }
+.stall-tile__tags { font-weight: 600; color: var(--ink); }
+.stall-tile__warn { font-size: .82rem; font-weight: 600; color: var(--red-deep); line-height: 1.25; }
+.stall-tile:disabled { cursor: default; }
+
+/* The same colors on tiles, the calendar and the legend */
+.is-free { background: #EEF6F0; }
+.stall-tile.is-free .stall-tile__who { color: #1f6b3a; }
+.is-monthly, .is-horse { background: var(--sand); }
+.is-nightly { background: #F6D9D6; }
+.is-ours { background: repeating-linear-gradient(135deg, #E9E6E1 0 6px, #F5F3EF 6px 12px); }
+.is-off { background: repeating-linear-gradient(135deg, #CFCAC2 0 4px, #E2DED7 4px 8px); color: var(--dust); }
+
+/* Two weeks, stall by stall */
+.cal-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); }
+.cal-table { border-collapse: collapse; font-size: .85rem; min-width: 100%; }
+.cal-table th, .cal-table td { border: 1px solid rgba(14,14,14,.08); }
+.cal-table thead th { padding: 6px 4px; font-weight: 600; text-align: center; white-space: nowrap; background: var(--paper); min-width: 58px; }
+.cal-table thead th small { display: block; font-weight: 500; color: var(--dust); }
+.cal-table thead th.is-today { background: var(--ink); color: var(--on-ink); }
+.cal-table thead th.is-today small { color: rgba(246,240,229,.72); }
+.cal-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--paper); text-align: left; padding: 6px 10px; white-space: nowrap; font-weight: 600; }
+.cal-table tbody th small { color: var(--dust); font-weight: 500; }
+.cal { height: 34px; padding: 0 4px; cursor: pointer; max-width: 58px; overflow: hidden; white-space: nowrap; }
+.cal span { font-size: .78rem; font-weight: 600; }
+.cal.is-start:not(.is-free):not(.is-off) { border-left: 3px solid var(--ink); }
+.cal.is-move { box-shadow: inset 0 -3px 0 var(--red); }
+.cal.is-off { cursor: default; }
+.cal:hover:not(.is-off) { outline: 2px solid var(--ink); outline-offset: -2px; }
+
+/* Stall assistant */
+.board-ai { border-top: 4px solid var(--red); }
+.ai-log { display: grid; gap: 10px; max-height: 360px; overflow-y: auto; margin: 6px 0 14px; padding: 4px 2px; }
+.ai-msg { max-width: 88%; padding: 10px 14px; }
+.ai-msg p { margin: 0; }
+.ai-msg .btn-row { margin-top: 8px; gap: 10px; align-items: center; }
+.ai-msg--user { justify-self: end; background: var(--ink); color: var(--on-ink); }
+.ai-msg--assistant { justify-self: start; background: var(--sand-soft); border: 1px solid var(--line); }
+.ai-form { display: flex; gap: 10px; align-items: stretch; }
+.ai-form textarea { flex: 1; font: inherit; border: 1px solid var(--line); padding: 10px 12px; resize: vertical; min-height: 54px; background: var(--paper); color: var(--ink); }
+.ai-form textarea:focus { outline: 3px solid var(--red); outline-offset: 0; }
+@media (max-width: 560px) { .ai-form { flex-direction: column; } }
+
+/* Find stalls */
+.board-find summary { cursor: pointer; list-style: none; }
+.board-find summary::-webkit-details-marker { display: none; }
+.board-find summary h2 { display: inline; }
+.board-find summary::after { content: "+"; float: right; font: 600 1.4rem/1 var(--text); }
+.board-find[open] summary::after { content: "\2212"; }
+.find-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 12px; align-items: end; margin-top: 14px; }
+.find-grid .form-actions { margin: 0; }
+@media (max-width: 900px) { .find-grid { grid-template-columns: 1fr 1fr; } }
+.find-opt .card__top h3 { font-size: 1.05rem; }
+
+/* Stall details and the add / edit form */
+.board-dlg { border: 0; padding: 0; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 32px); background: var(--sand-soft); color: var(--ink); }
+.board-dlg::backdrop { background: rgba(14,14,14,.55); }
+.board-dlg__body { position: relative; padding: 24px 22px 22px; }
+.board-dlg__body h2 { font-size: 1.45rem; padding-right: 40px; }
+.board-dlg__x { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; border: 0; background: none; font-size: 1.8rem; cursor: pointer; color: var(--ink); }
+.board-dlg .card { margin-top: 12px; }
+.board-dlg .field textarea { min-height: 70px; }
+.horse-rows { display: grid; gap: 6px; }
+.field-label { font-weight: 600; font-size: 1rem; }
+.horse-row [data-del-row] { min-width: 42px; padding: 0; font-size: 1.3rem; }
+@media (max-width: 600px) { .barn { grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); } .barn__aisle--head, .barn__aisle--foot { font-size: 0; } .stall-tile { padding-left: 40px; } .stall-tile__num { width: 32px; } }
+.horse-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.horse-row select, .horse-row input[name="horse"] { font: inherit; border: 1px solid var(--line); padding: 9px 10px; background: var(--paper); color: var(--ink); min-width: 0; }
+.horse-row .choice { align-items: center; }
+.horse-row .choice input { margin-top: 0; }
+@media (max-width: 520px) { .horse-row { grid-template-columns: 1fr auto auto; } .horse-row select { grid-column: 1 / -1; } }
+.seg { display: flex; flex-wrap: wrap; gap: 18px; }
+.stay-card.is-ours { border-left: 4px solid #9b958c; }
+.stay-card.is-monthly { border-left: 4px solid #C9AE7C; }
+.stay-card.is-nightly { border-left: 4px solid var(--red); }

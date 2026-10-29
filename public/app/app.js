@@ -205,6 +205,7 @@
       body += feature({ href: '#/documents', icon: 'pen', title: 'My documents', sub: h.toSign ? `${h.toSign} to sign` : 'Employee packet and W-9', badge: h.toSign || '' });
       if (p !== 'hand') {
         body += `<p class="section-label">Ranch</p>`;
+        body += feature({ href: '/admin/#/board', icon: 'stall', title: 'Stall board', sub: 'Who’s in each stall, add horses, ask the stall assistant' });
         body += feature({ href: '/admin/#/bookings', icon: 'cal', title: 'Bookings', sub: h.pendingBookings ? `${h.pendingBookings} waiting for you` : 'Nothing waiting', badge: h.pendingBookings || '' });
         body += feature({ href: '/admin/#/waivers', icon: 'doc', title: 'Waivers', sub: h.waiversToCountersign ? `${h.waiversToCountersign} to countersign` : 'All countersigned', badge: h.waiversToCountersign || '' });
         body += feature({ href: '/admin/#/hours', icon: 'clock', title: 'Hours', sub: h.onClock.length ? `On the clock: ${h.onClock.join(', ')}` : 'Nobody on the clock' });
@@ -316,8 +317,8 @@
     view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
     const { chats } = await api('GET', '/chats');
     view.innerHTML = `<div class="wrap"><div class="msgs-head"><h1 style="font-size:1.8rem">Messages</h1>${isStaff() ? '<button class="req-btn" type="button" id="new-chat">+ New</button>' : ''}</div>
-      ${chats.map((c) => `<a class="chat-row" href="#/chat/${c.id}"><span class="avatar ${c.type === 'team' ? 'team' : ''}">${esc((c.title || '?').slice(0, 1))}</span>
-        <span class="meta"><b>${esc(c.title)}</b><span>${c.last ? `${esc(c.last.by)}: ${esc(c.last.text)}` : c.type === 'team' ? 'Everyone on the ranch team' : 'No messages yet'}</span></span>
+      ${chats.map((c) => `<a class="chat-row" href="#/chat/${c.id}"><span class="avatar ${c.type === 'channel' ? 'team' : ''}">${esc((c.title || '?').slice(0, 1))}</span>
+        <span class="meta"><b>${esc(c.title)}</b><span>${c.last ? `${esc(c.last.by)}: ${esc(c.last.text)}` : c.about ? esc(c.about) : 'No messages yet'}</span></span>
         <span class="side">${c.last ? esc(ago(c.last.at)) : ''}${c.unread ? `<br><b class="unread">${c.unread}</b>` : ''}</span></a>`).join('') || '<div class="empty">No chats yet.</div>'}</div>`;
     const nb = $('#new-chat');
     if (nb) nb.onclick = newChatSheet;
@@ -329,7 +330,7 @@
     let last = messages.length ? messages[messages.length - 1].at : '';
     S.files = [];
     view.innerHTML = `<div class="wrap thread">
-      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'team' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span>${chat.type === 'group' ? `<button class="title-btn" type="button" id="group-info"><b>${esc(chat.title)}</b><small>${chat.members.length} people</small></button>` : `<b>${esc(chat.title)}</b>`}
+      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'channel' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span>${chat.type === 'group' || chat.type === 'channel' ? `<button class="title-btn" type="button" id="group-info"><b>${esc(chat.title)}</b><small>${chat.members.length} people</small></button>` : `<b>${esc(chat.title)}</b>`}
         ${chat.type === 'owner' && isStaff() && pos() !== 'hand' ? '<button class="req-btn" type="button" id="req-sign">Request signature</button>' : ''}</div>
       <div class="thread__msgs" id="msgs"></div></div>
       <div class="composer"><p class="pending" id="pending" hidden></p><form id="send" novalidate>
@@ -338,7 +339,7 @@
         <textarea id="text" rows="1" placeholder="Message" aria-label="Message"></textarea>
         <button class="send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-3-7z"/></svg></button></form></div>`;
     const box = $('#msgs');
-    const team = chat.type === 'team' || isStaff();
+    const team = chat.type !== 'owner' || isStaff(); // show who wrote each message, except in an owner's own chat with the ranch
     let prevBy = null;
     const add = (list) => {
       box.insertAdjacentHTML('beforeend', list.map((m) => {
@@ -355,7 +356,7 @@
       window.scrollTo(0, document.body.scrollHeight);
     };
     add(messages);
-    if (!messages.length) box.innerHTML = `<p class="muted" style="text-align:center;margin-top:30px">${chat.type === 'team' ? 'Say hi to the team.' : isStaff() ? 'Start the conversation with this owner.' : 'Ask the ranch anything. The team usually answers fast.'}</p>`;
+    if (!messages.length) box.innerHTML = `<p class="muted" style="text-align:center;margin-top:30px">${chat.type === 'channel' ? `Say hi to everyone in ${esc(chat.title)}.` : isStaff() ? 'Start the conversation with this owner.' : 'Ask the ranch anything. The team usually answers fast.'}</p>`;
     api('POST', `/chats/${id}/read`).then(refreshCounts).catch(() => {});
     const pull = async (includeMine) => {
       try {
@@ -430,15 +431,18 @@
   }
 
   async function groupSheet(chat) {
-    const { people } = chat.canManage ? await api('GET', '/chats/people') : { people: [] };
+    const fixed = chat.type === 'channel'; // the fixed chats keep their names; only Barn Management has a hand-picked list
+    const { people: all } = chat.canManage ? await api('GET', '/chats/people') : { people: [] };
+    const people = fixed ? all.filter((p) => p.role === 'staff') : all;
     const inGroup = new Set(chat.members.map((m) => m.id));
     openSheet(`<h2>${esc(chat.title)}</h2>
-      ${chat.canManage ? `<form id="gr" class="row-form" novalidate><input id="gr-t" value="${esc(chat.title)}" aria-label="Group name" maxlength="60"><button class="btn" type="submit">Rename</button></form>` : ''}
+      ${fixed ? `<p class="muted">${chat.key === 'management' ? 'Only the people below see this chat. Anyone in it can add or remove people.' : `${esc(chat.about)} are in this chat automatically.`}</p>` : ''}
+      ${chat.canManage && !fixed ? `<form id="gr" class="row-form" novalidate><input id="gr-t" value="${esc(chat.title)}" aria-label="Group name" maxlength="60"><button class="btn" type="submit">Rename</button></form>` : ''}
       <p class="section-label">${chat.members.length} people</p>
       ${chat.members.map((m) => `<div class="member"><span class="avatar" style="width:36px;height:36px;font-size:.9rem">${esc(m.name.slice(0, 1))}</span><span>${esc(m.name)}${m.id === S.me.id ? ' (you)' : ''}</span>
         ${chat.canManage && m.id !== S.me.id ? `<button type="button" class="linkish" data-rm="${m.id}">Remove</button>` : ''}</div>`).join('')}
-      ${chat.canManage && people.some((p) => !inGroup.has(p.id)) ? `<p class="section-label">Add people</p><form id="ga" novalidate>${people.filter((p) => !inGroup.has(p.id)).map((p) => `<label class="pick"><input type="checkbox" value="${p.id}"> ${esc(p.name)}</label>`).join('')}<button class="btn" type="submit" style="margin-top:10px">Add to group</button></form>` : ''}
-      <button class="btn" type="button" id="g-leave" style="margin-top:16px">Leave group</button><p class="err" id="g-err"></p>`, (sheet) => {
+      ${chat.canManage && people.some((p) => !inGroup.has(p.id)) ? `<p class="section-label">Add people</p><form id="ga" novalidate>${people.filter((p) => !inGroup.has(p.id)).map((p) => `<label class="pick"><input type="checkbox" value="${p.id}"> ${esc(p.name)}</label>`).join('')}<button class="btn" type="submit" style="margin-top:10px">Add to ${fixed ? 'this chat' : 'group'}</button></form>` : ''}
+      ${!fixed || chat.key === 'management' ? `<button class="btn" type="button" id="g-leave" style="margin-top:16px">Leave ${fixed ? 'this chat' : 'group'}</button>` : ''}<p class="err" id="g-err"></p>`, (sheet) => {
       const err = (ex) => { $('#g-err', sheet).textContent = ex.message; };
       const done = (msg) => { sheet.close(); toast(msg); route(); };
       const rn = $('#gr', sheet);
@@ -446,7 +450,8 @@
       const ga = $('#ga', sheet);
       if (ga) ga.onsubmit = async (e) => { e.preventDefault(); const userIds = [...ga.querySelectorAll('input:checked')].map((x) => x.value); try { await api('POST', `/chats/${chat.id}/members`, { userIds }); done('Added'); } catch (ex) { err(ex); } };
       sheet.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { try { await api('DELETE', `/chats/${chat.id}/members/${b.dataset.rm}`); done('Removed'); } catch (ex) { err(ex); } }; });
-      $('#g-leave', sheet).onclick = async () => { if (!confirm('Leave this group?')) return; try { await api('DELETE', `/chats/${chat.id}/members/${S.me.id}`); sheet.close(); location.hash = '#/messages'; } catch (ex) { err(ex); } };
+      const lv = $('#g-leave', sheet);
+      if (lv) lv.onclick = async () => { if (!confirm(fixed ? 'Leave this chat? Someone in it can add you back.' : 'Leave this group?')) return; try { await api('DELETE', `/chats/${chat.id}/members/${S.me.id}`); sheet.close(); location.hash = '#/messages'; } catch (ex) { err(ex); } };
     });
   }
 

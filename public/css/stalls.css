@@ -51,6 +51,13 @@
 .spot.is-unavailable { cursor: help; }
 .spot.is-selected rect.hit { fill: rgba(204, 35, 42, .32); stroke: var(--red); stroke-width: 4; stroke-dasharray: none; }
 .spot .badge { pointer-events: none; }
+.plate { pointer-events: none; }
+.plate rect { fill: #F3EEE4; stroke: rgba(14,14,14,.35); stroke-width: 1; }
+.plate text { font: 600 19px var(--display, serif); fill: #1A1A1A; text-anchor: middle; }
+.plate .plate__sub { font: 600 9px var(--text, sans-serif); letter-spacing: .06em; }
+.plate.is-off rect { fill: #B9B5AE; }
+.zoom-plate { position: absolute; display: grid; place-items: center; background: #F3EEE4; border: 1px solid rgba(14,14,14,.35); border-radius: 3px; font-family: var(--display, serif); font-weight: 600; line-height: 1; color: #1A1A1A; pointer-events: none; }
+.zoom-plate.is-off { background: #B9B5AE; }
 .area { cursor: help; outline: none; }
 .area .hit { fill: rgba(255,255,255,0); stroke: rgba(255,255,255,0); stroke-width: 3; transition: fill .15s ease, stroke .15s ease; }
 .area:hover .hit, .area:focus-visible .hit, .area.is-peek .hit { fill: rgba(255, 244, 222, .14); stroke: rgba(255,255,255,.9); }

@@ -47,6 +47,8 @@ module.exports = function ranchRouter({ dataDir }) {
   if (!db.stalls.length) { db.stalls = seedStalls(); store.save(); }
 
   // ---------------------------------------------------------- one-time data updates for existing installs
+  const stallById = (id) => db.stalls.find((s) => s.id === id);
+  const horseInStall = (stallId) => db.horses.find((h) => h.active !== false && h.stallId === stallId);
   const BARN_PHOTO = '/img/photos/barn-stalls.jpg';
   const migrations = {
     // Shapes now come from lib/ranch-layout.js, not the database
@@ -74,20 +76,62 @@ module.exports = function ranchRouter({ dataDir }) {
         st.photos.unshift({ id: crypto.randomBytes(8).toString('hex'), url: BARN_PHOTO, builtIn: true });
       }
     }),
+    // Jenna's barn sheet (Oct 2026): 1 not in use, 2 and 11 in use, 10 ponies only, 20 is 12' x 22'
+    'barn-sheet-rules': () => {
+      const m = (n) => stallById('M' + n) || {};
+      Object.assign(m(1), { status: 'unavailable', description: 'Not in use right now.' });
+      for (const n of [2, 11]) {
+        if (m(n).status !== 'unavailable') continue;
+        Object.assign(m(n), { status: 'available', description: 'Indoor stall in the main barn, off the center aisle.' });
+        if (m(n).photos && !m(n).photos.some((ph) => ph.url === BARN_PHOTO)) m(n).photos.unshift({ id: crypto.randomBytes(8).toString('hex'), url: BARN_PHOTO, builtIn: true });
+      }
+      Object.assign(m(10), { ponyOnly: true, description: 'Indoor stall in the main barn, for ponies only.' });
+      Object.assign(m(20), { smaller: true, size: "12' x 22'" });
+    },
+    // Start the Stall board from the same sheet: boarders in 2-9 and 12, the ranch's own horses in 13-19.
+    // They're monthly with no names; the team fills in names or ends them on the board.
+    'board-from-barn-sheet': () => {
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date()); // today at the ranch
+      const plan = [[2, 3, 4, 5, 6, 7, 8, 9, 12, false], [13, 14, 15, 16, 17, 18, 19, true]];
+      for (const row of plan) {
+        const ours = row.pop();
+        for (const n of row) {
+          const id = 'M' + n;
+          if (!stallById(id) || horseInStall(id) || db.bookings.some((b) => HOLDS.has(b.status) && b.stallIds.includes(id) && (b.to || '9999-12-31') > day)) continue;
+          db.seq.booking += 1;
+          db.bookings.push({
+            id: crypto.randomBytes(8).toString('hex'), ref: 'WR' + db.seq.booking, status: 'confirmed', source: 'staff', kind: 'monthly', ours,
+            stallIds: [id], horses: [''], ponies: [false], from: day, to: null, nights: null, name: '', phone: '', email: '',
+            notes: 'From Jenna’s barn sheet. Add the horse’s name.', care: 'full', parking: false, estimate: null, staffNote: '',
+            createdBy: 'Barn sheet', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    },
   };
   let migrated = false;
   for (const [name, run] of Object.entries(migrations)) {
     if (!db.migrations[name]) { run(); db.migrations[name] = new Date().toISOString(); migrated = true; }
   }
   if (migrated) store.save();
+  // Master account: whoever is in ADMIN_EMAIL / ADMIN_PASSWORD on Railway. Full access, nobody else can turn it
+  // off, change it or send it a login link, and changing ADMIN_PASSWORD on Railway resets its password.
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-  if (adminEmail && process.env.ADMIN_PASSWORD && !db.users.some((u) => u.email === adminEmail)) {
-    db.users.push({
-      id: crypto.randomBytes(8).toString('hex'), name: process.env.ADMIN_NAME || 'Ranch admin', email: adminEmail, phone: '',
-      role: 'staff', password: auth.hashPassword(process.env.ADMIN_PASSWORD), active: true, createdAt: new Date().toISOString(),
-    });
+  if (adminEmail && process.env.ADMIN_PASSWORD) {
+    let m = db.users.find((u) => u.email === adminEmail);
+    if (!m) {
+      m = { id: crypto.randomBytes(8).toString('hex'), name: process.env.ADMIN_NAME || 'Ranch admin', email: adminEmail, phone: '',
+        role: 'staff', password: auth.hashPassword(process.env.ADMIN_PASSWORD), active: true, createdAt: new Date().toISOString() };
+      db.users.push(m);
+      console.log('[ranch] master account created for', adminEmail);
+    } else if (!auth.verifyPassword(process.env.ADMIN_PASSWORD, m.password)) {
+      m.password = auth.hashPassword(process.env.ADMIN_PASSWORD);
+      db.sessions = db.sessions.filter((x) => x.userId !== m.id);
+      console.log('[ranch] master password updated from ADMIN_PASSWORD for', adminEmail);
+    }
+    Object.assign(m, { role: 'staff', position: 'office', active: true, master: true });
+    if (process.env.ADMIN_NAME) m.name = process.env.ADMIN_NAME;
     store.save();
-    console.log('[ranch] staff account created for', adminEmail);
   }
   if (process.env.SEED_DEMO === '1') seedDemo(store, auth, uploads);
 
@@ -100,12 +144,11 @@ module.exports = function ranchRouter({ dataDir }) {
   const nights = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
   const dayOffset = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
   const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-  const stallById = (id) => db.stalls.find((s) => s.id === id);
-  const horseInStall = (stallId) => db.horses.find((h) => h.active !== false && h.stallId === stallId);
   const origin = (req) => `${req.protocol}://${req.get('host')}`;
 
+  // Monthly stays may have no end day. Stays with one of our own horses don't block: that horse can move.
   function stallBusy(stallId, from, to, ignoreBookingId) {
-    return db.bookings.some((b) => b.id !== ignoreBookingId && HOLDS.has(b.status) && b.stallIds.includes(stallId) && b.from < to && from < b.to);
+    return db.bookings.some((b) => b.id !== ignoreBookingId && HOLDS.has(b.status) && !b.ours && b.stallIds.includes(stallId) && b.from < to && from < (b.to || '9999-12-31'));
   }
 
   const photoUrl = (p) => p.url || '/api/ranch/files/' + p.file;
@@ -115,9 +158,10 @@ module.exports = function ranchRouter({ dataDir }) {
     if (s.status !== 'available') availability = 'unavailable';
     else if (horseInStall(s.id)) availability = 'occupied';
     else if (range && stallBusy(s.id, range.from, range.to)) availability = 'booked';
+    else if (!range && stallBusy(s.id, dayOffset(0), dayOffset(1))) availability = 'occupied';
     return {
       id: s.id, group: s.group, number: s.number, name: s.name, shape: SHAPES[s.id] || s.shape || null,
-      smaller: !!s.smaller, size: s.size, nightly: s.nightly, monthly: s.monthly, description: s.description,
+      smaller: !!s.smaller, ponyOnly: !!s.ponyOnly, size: s.size, nightly: s.nightly, monthly: s.monthly, description: s.description,
       photos: s.photos.map((p) => ({ id: p.id, url: photoUrl(p), builtIn: !!p.builtIn })),
       availability,
     };
@@ -473,9 +517,10 @@ module.exports = function ranchRouter({ dataDir }) {
   }
 
   // ---- bookings
+  // Requests from the website. Stays the team adds itself live on the Stall board.
   staff.get('/bookings', (_req, res) => {
     const order = { pending: 0, confirmed: 1, completed: 2, declined: 3, cancelled: 4 };
-    const list = db.bookings.slice().sort((a, b) => (order[a.status] - order[b.status]) || a.from.localeCompare(b.from));
+    const list = db.bookings.filter((b) => b.source !== 'staff' && b.source !== 'ai').sort((a, b) => (order[a.status] - order[b.status]) || a.from.localeCompare(b.from));
     res.json({ bookings: list.map((b) => ({ ...b, stallNames: b.stallIds.map((id) => (stallById(id) || {}).name || id) })) });
   });
 
@@ -523,6 +568,7 @@ module.exports = function ranchRouter({ dataDir }) {
     }
     if ('size' in b) patch.size = str(b.size, 40);
     if ('description' in b) s.description = str(b.description, 500);
+    if ('ponyOnly' in b) s.ponyOnly = !!b.ponyOnly;
     if ('status' in b) {
       if (!['available', 'unavailable'].includes(b.status)) return res.status(400).json({ error: 'Unknown status.' });
       s.status = b.status;
@@ -650,6 +696,7 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.post('/users/:id/invite', async (req, res) => {
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Person not found.' });
+    if (user.master && !req.user.master) return res.status(403).json({ error: 'That’s the master account. Only its owner can change it.' });
     const t = auth.createInvite(user);
     const inviteUrl = `${origin(req)}/#/invite/${t}`;
     const mail = req.body && req.body.email ? await emailInvite(user, inviteUrl, req.user) : null;
@@ -659,6 +706,8 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.patch('/users/:id', async (req, res) => {
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Person not found.' });
+    if (user.master && !req.user.master) return res.status(403).json({ error: 'That’s the master account. Only its owner can change it.' });
+    if (user.master && ('position' in (req.body || {}) || (req.body || {}).active === false)) return res.status(400).json({ error: 'The master account always keeps full access.' });
     const b = req.body || {};
     if ('name' in b) { const v = str(b.name, 100); if (!v) return res.status(400).json({ error: 'Add a name.' }); user.name = v; }
     if ('phone' in b) user.phone = str(b.phone, 40);
@@ -871,6 +920,9 @@ module.exports = function ranchRouter({ dataDir }) {
     const u = q.userId ? db.users.find((x) => x.id === q.userId) : null;
     res.json({ docId: q.docId, name: u ? u.name : q.name, email: u ? u.email : q.email, phone: u ? u.phone : q.phone });
   });
+
+  // ---- stall board: monthly boarders, nightly stays, the stall assistant
+  require('./board')({ staff, db, store, newId, now, str, isDate, stallById, horseInStall, HOLDS });
 
   // ---- time clock (shift, hours, reports)
   require('./shifts')({ staff, db, store, newId, now, str });
