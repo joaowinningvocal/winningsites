@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Document | Winning Ranch</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E0E0E">
+<link rel="icon" type="image/png" href="/img/favicon.png">
+<!-- A PDF opened from the app: drawn page by page, with a Close button (a PDF opened directly has no way back in the app) -->
+<style>
+  :root { --ink: #0E0E0E; --on-ink: #F6F0E5; --red: #CC232A; --bg: #E9E4DA; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; background: var(--ink); color: var(--on-ink);
+    padding: calc(10px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 10px max(12px, env(safe-area-inset-left, 0px)); }
+  .bar a { color: var(--on-ink); text-decoration: none; font-weight: 600; padding: 9px 12px; border: 1px solid rgba(246, 240, 229, .35); white-space: nowrap; }
+  .bar .title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pages { display: grid; gap: 12px; justify-items: center; padding: 14px max(10px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
+  .pages canvas { width: 100%; max-width: 900px; height: auto; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }
+  .msg { text-align: center; padding: 40px 16px; }
+  .msg a { color: var(--red); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a href="/#/documents" id="close">&lsaquo; Close</a>
+  <span class="title" id="title">Document</span>
+  <a href="#" id="download" download>Download</a>
+</header>
+<main class="pages" id="pages"><p class="msg">Loading…</p></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+(() => {
+  // Only documents we publish can be opened here
+  const FILES = { w9: { url: '/docs/w9.pdf', title: 'Form W-9' } };
+  const doc = FILES[new URLSearchParams(location.search).get('file')];
+  const pages = document.getElementById('pages');
+  const close = document.getElementById('close');
+  close.addEventListener('click', (e) => {
+    if (history.length > 1 && document.referrer && new URL(document.referrer).origin === location.origin) { e.preventDefault(); history.back(); }
+  });
+  if (!doc) { pages.innerHTML = '<p class="msg">This document isn’t available.</p>'; return; }
+  document.title = `${doc.title} | Winning Ranch`;
+  document.getElementById('title').textContent = doc.title;
+  document.getElementById('download').href = doc.url;
+  const fallback = () => { pages.innerHTML = `<p class="msg">Couldn’t show it here. <a href="${doc.url}">Open the PDF</a></p>`; };
+  if (!window.pdfjsLib) return fallback();
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  pdfjsLib.getDocument(doc.url).promise.then(async (pdf) => {
+    pages.innerHTML = '';
+    const scale = Math.min(2.5, (window.devicePixelRatio || 1) * 1.5);
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n);
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      canvas.setAttribute('aria-label', `${doc.title}, page ${n} of ${pdf.numPages}`);
+      pages.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    }
+  }).catch(fallback);
+})();
+</script>
+</body>
+</html>

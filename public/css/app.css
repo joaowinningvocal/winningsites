@@ -120,7 +120,11 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .status--completed { color: var(--ink); }
 .status--invite { color: #9a5b00; }
 
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 16px; }
+/* iPhone draws date and time boxes at their own width with the text centered; line them up with the other fields */
+.field input[type="date"], .field input[type="time"] { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; max-width: 100%; text-align: left; }
+.field input[type="date"]::-webkit-date-and-time-value, .field input[type="time"]::-webkit-date-and-time-value { text-align: left; }
+.field { min-width: 0; }
 .form-grid .full { grid-column: 1 / -1; }
 @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
 .form-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px; }
@@ -358,8 +362,14 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .stall-tile {
   position: relative; display: grid; gap: 1px; align-content: center; text-align: left; min-height: 64px; padding: 8px 10px 8px 46px;
   font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line); cursor: pointer;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; /* press and hold drags, it doesn't select text */
 }
 .stall-tile:hover:not(:disabled) { border-color: var(--ink); }
+/* Dragging a horse to another stall */
+.stall-tile.is-lifted { opacity: .35; }
+.stall-tile.is-target { outline: 3px solid var(--red); outline-offset: -3px; }
+.drag-ghost { position: fixed; left: 0; top: 0; z-index: 100; pointer-events: none; box-shadow: 0 12px 30px rgba(14,14,14,.35); opacity: .95; }
+.board-hint { font-size: .92rem; margin: 0 0 10px; }
 .stall-tile:focus-visible { outline: 3px solid var(--red); outline-offset: 1px; }
 .stall-tile__num { position: absolute; left: 0; top: 0; bottom: 0; width: 38px; display: grid; place-items: center; font: 600 1.05rem var(--display); background: rgba(14,14,14,.06); }
 .stall-tile__who { font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
@@ -418,11 +428,24 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .find-opt .card__top h3 { font-size: 1.05rem; }
 
 /* Stall details and the add / edit form */
-.board-dlg { border: 0; padding: 0; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 32px); background: var(--sand-soft); color: var(--ink); }
+/* Kept clear of the phone's status bar and home bar (dvh = the screen actually visible), so the X is always reachable */
+.board-dlg {
+  border: 0; padding: 0; width: min(640px, calc(100vw - 24px)); background: var(--sand-soft); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  margin-top: max(12px, env(safe-area-inset-top, 0px));
+}
 .board-dlg::backdrop { background: rgba(14,14,14,.55); }
-.board-dlg__body { position: relative; padding: 24px 22px 22px; }
-.board-dlg__body h2 { font-size: 1.45rem; padding-right: 40px; }
-.board-dlg__x { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; border: 0; background: none; font-size: 1.8rem; cursor: pointer; color: var(--ink); }
+.board-dlg__body { position: relative; padding: 0 22px 22px; }
+.board-dlg__body h2 { font-size: 1.45rem; padding-right: 40px; margin-top: -26px; }
+/* The close button stays on top while the content scrolls under it */
+.board-dlg__bar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: flex-end; padding: 6px 6px 0; pointer-events: none; }
+.board-dlg__x { pointer-events: auto; width: 46px; height: 46px; border: 0; background: var(--sand-soft); border-radius: 50%; font-size: 1.9rem; line-height: 1; cursor: pointer; color: var(--ink); }
+.phone-rows { display: grid; gap: 8px; }
+.phone-row { display: flex; gap: 8px; }
+.phone-row input { flex: 1 1 0; width: auto; min-width: 0; font: inherit; font-size: 1.05rem; border: 1px solid rgba(14, 14, 14, .35); padding: 12px 14px; min-height: 50px; background: var(--paper); color: var(--ink); }
+.phone-row [data-del-phone] { flex: 0 0 50px; width: 50px; min-width: 0; padding: 0; font-size: 1.3rem; }
+.horse-rows > [data-add-row], .field > [data-add-phone] { align-self: flex-start; justify-self: start; }
 .board-dlg .card { margin-top: 12px; }
 .board-dlg .field textarea { min-height: 70px; }
 .horse-rows { display: grid; gap: 6px; }

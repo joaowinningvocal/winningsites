@@ -12,7 +12,7 @@ const fs = require('fs');
 const multer = require('multer');
 const H = require('../lib/hours');
 
-module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, docTitle }) {
+module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse, docTitle }) {
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
@@ -250,7 +250,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
       const ups = db.updates.filter((x) => x.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const img = ups.find((x) => x.media.some((m) => m.type === 'image'));
       return {
-        id: h.id, name: h.name, stall: (stallById(h.stallId) || {}).name || '',
+        id: h.id, name: h.name, stall: (stallById(stallOfHorse(h)) || {}).name || '',
         latest: ups[0] ? { caption: ups[0].caption, at: ups[0].createdAt, by: ups[0].authorName } : null,
         cover: img ? `/api/ranch/media/${img.media.find((m) => m.type === 'image').file}` : null,
         fresh: ups.filter((x) => x.createdAt > seenUpdates).length,

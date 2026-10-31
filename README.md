@@ -87,7 +87,7 @@ O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. 
 | Bookings | Pedidos de reserva do site: confirmar, recusar, concluir, cancelar |
 | Stall board | Quem está em cada baia por dia, as próximas duas semanas, adicionar cavalos (mensal, por noite ou nosso), "Find stalls" e o assistente |
 | Hours | Turnos do dia, correções, semana de pagamento, CSV, configurações do ponto |
-| Horses | Cavalos, dono e baia |
+| Horses | Os cavalos do Stall board: dono (com ou sem conta no app) e baia |
 | People | Donos e equipe, posição (ranch hand, ranch manager, office) e links de acesso |
 | Pricing | Pricing board: mapa colorido por preço, seleção múltipla, ajuste em $ ou %, planilha, histórico com desfazer, faixa mensal do site |
 | Stalls | Fotos, tamanho, status e descrição de cada baia |
@@ -120,6 +120,10 @@ Em `/admin/#/board` (e no atalho **Stall board** da Home do app, para manager e 
 - **Bloquear uma baia:** toque na baia, **Add a horse to this stall**, e escolha **Monthly boarder** (sem data de saída) ou **Nightly** (chegada e saída). Dá pra pôr vários cavalos de uma vez, cada um na sua baia.
 - **Nossos cavalos** (marcados como "one of our own horses"): seguram a baia, mas o site continua oferecendo ela e uma reserva pode ir por cima. Aí o board avisa "Move our horse out".
 - **Saída:** **Moves out** fecha a estadia naquele dia. **Remove** é pra engano.
+- **Telefones:** até 3 por estadia (**+ Phone number**).
+- **Trocar de baia:** segure o cavalo (no computador, só arraste) e solte em outra baia. Soltou em cima de outro cavalo, os dois trocam. O aviso que aparece tem **Undo**.
+- **Aba Horses:** são os mesmos cavalos do board. Cavalo com nome no board aparece em Horses (com o dono digitado, mesmo sem conta no app), e a baia escolhida em Horses move o cavalo no board. **Left the ranch** libera a baia.
+- Uma estadia nova numa baia que ainda tem um dos cavalos sem nome da planilha da Jenna substitui ele.
 - **Find stalls:** quantos cavalos, quantos pôneis e as datas. Mostra as melhores baias livres, juntas (lado a lado, depois de frente pelo corredor), e reserva com um toque.
 - **Assistente:** "I have 5 horses coming in Nov 15 - Nov 17, what stalls can I put them in?". Ele escolhe as baias com o mesmo cálculo do Find stalls, reserva na hora e mostra **Undo**. Grupos diferentes ("3 do Smith e 2 do Jones") ficam cada um junto. Usa o Claude Opus 5.5 (`lib/stall-ai.js`).
 - Na primeira vez, o board já vem com a planilha da Jenna: boarders nas baias 2 a 9 e 12, nossos cavalos de 13 a 19, todos sem nome. É só tocar e pôr o nome.
@@ -133,7 +137,7 @@ A arte atual tem a numeração antiga pintada (ímpares à esquerda, pares à di
 
 ## Documentos para assinar
 
-O texto fica em `public/docs/<id>.html`, convertido dos arquivos Word sem mudar a redação, com o PDF original ao lado. Os campos de cada documento ficam em `lib/docs.js`. Cada assinatura guarda a versão exata que foi assinada. O W-9 é só para baixar: o site não coleta número de Social Security. Vale o advogado revisar o fluxo antes de aposentar o papel.
+O texto fica em `public/docs/<id>.html`, convertido dos arquivos Word sem mudar a redação, com o PDF original ao lado. Os campos de cada documento ficam em `lib/docs.js`. Cada assinatura guarda a versão exata que foi assinada. O W-9 abre num visualizador com botão Close (`/doc.html?file=w9`) e por enquanto é só para baixar e entregar no escritório: o site não coleta número de Social Security. Vale o advogado revisar o fluxo antes de aposentar o papel.
 
 ## Dados
 
@@ -145,7 +149,6 @@ Atualizações de dados de versões anteriores rodam sozinhas uma vez na inicial
 
 ## O que ainda falta preencher
 
-- **Preço por noite de cada baia:** no Pricing board.
 - **No site, marcados em vermelho tracejado:**
   - jumps e barrels;
   - tipo de feno incluso e quantidade;

@@ -502,10 +502,10 @@
       const status = d.status === 'requested' ? `Requested by ${esc(d.request.by)}, ${esc(ago(d.request.at))}${d.request.note ? `: ${esc(d.request.note)}` : ''}`
         : d.status === 'signed' ? `Signed ${esc(date(latest.at))}${latest.horse ? ` for ${esc(latest.horse)}` : ''}${latest.countersigned ? ', countersigned by the ranch' : ''}`
           : `${esc(d.who)} About ${d.minutes} min.`;
-      const more = d.signed.slice(1).map((w) => `<a class="textlink" href="/api/ranch/my/waivers/${w.id}/copy" target="_blank" rel="noopener">${esc(date(w.at))}${w.horse ? `, ${esc(w.horse)}` : ''}</a>`).join(' ');
+      const more = d.signed.slice(1).map((w) => `<a class="textlink" href="/api/ranch/my/waivers/${w.id}/copy">${esc(date(w.at))}${w.horse ? `, ${esc(w.horse)}` : ''}</a>`).join(' ');
       return `<article class="doc-card ${d.status}"><div class="doc-card__top"><span class="feature__ic">${ic('pen')}</span><div><h3>${esc(d.title)}</h3><p>${status}</p></div></div>
         <div class="doc-card__actions">${d.status === 'signed'
-          ? `<a class="btn" href="/api/ranch/my/waivers/${latest.id}/copy" target="_blank" rel="noopener">View signed copy</a>${d.id === 'boarding' ? `<a class="btn" href="/sign.html?doc=boarding&app=1">Sign for another horse</a>` : ''}`
+          ? `<a class="btn" href="/api/ranch/my/waivers/${latest.id}/copy">View signed copy</a>${d.id === 'boarding' ? `<a class="btn" href="/sign.html?doc=boarding&app=1">Sign for another horse</a>` : ''}`
           : `<a class="btn btn--red" href="/sign.html?doc=${esc(d.id)}&app=1">Sign now</a>`}</div>
         ${more ? `<p class="muted doc-card__more">Earlier: ${more}</p>` : ''}</article>`;
     };
@@ -516,7 +516,7 @@
       ${group('Signed', docs.filter((d) => d.status === 'signed'))}
       ${group(docs.some((d) => d.status !== 'available') ? 'Other documents' : 'Your documents', docs.filter((d) => d.status === 'available'))}
       ${w9 ? `<p class="section-label">Tax form</p><article class="doc-card"><div class="doc-card__top"><span class="feature__ic">${ic('doc')}</span><div><h3>Form W-9</h3><p>Download it, fill it out and hand it to the office. We don&rsquo;t collect Social Security numbers online.</p></div></div>
-        <div class="doc-card__actions"><a class="btn" href="/docs/w9.pdf" download>Download W-9</a></div></article>` : ''}</div>`;
+        <div class="doc-card__actions"><a class="btn" href="/doc.html?file=w9">Open the W-9</a></div></article>` : ''}</div>`;
   }
 
   // ------------------------------------------------------------------ post an update (team)
@@ -553,7 +553,8 @@
   // ------------------------------------------------------------------ chrome: sheet, lightbox, menu, bell
   function openSheet(html, wire) {
     const s = $('#sheet');
-    s.innerHTML = `<div class="sheet__body">${html}</div>`;
+    // The X closes natively (method="dialog") and stays in reach while a long sheet scrolls
+    s.innerHTML = `<form method="dialog" class="sheet__bar"><button class="sheet__x" aria-label="Close">&times;</button></form><div class="sheet__body">${html}</div>`;
     s.showModal();
     s.onclick = (e) => { if (e.target === s) s.close(); };
     wire(s);

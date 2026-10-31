@@ -108,6 +108,16 @@ module.exports = function ranchRouter({ dataDir }) {
         }
       }
     },
+    // Rates from Randy (Oct 30, 2026): barn $150 a night and $1,000 a month, outdoor $125 and $850.
+    // Only stalls without a price get them, so nothing set on the Pricing board is overwritten.
+    'rates-oct-2026': () => {
+      for (const st of db.stalls) {
+        const barn = st.group === 'main';
+        if (st.nightly == null) st.nightly = barn ? 150 : 125;
+        if (st.monthly == null) st.monthly = barn ? 1000 : 850;
+      }
+      Object.assign(db.settings, { monthlyMin: 850, monthlyMax: 1000 });
+    },
   };
   let migrated = false;
   for (const [name, run] of Object.entries(migrations)) {
@@ -365,13 +375,14 @@ module.exports = function ranchRouter({ dataDir }) {
       <style>body{font:15px/1.55 Georgia,serif;color:#111;max-width:780px;margin:0 auto;padding:0 20px 60px}
       .bar{position:sticky;top:0;background:#fff;padding:12px 0;border-bottom:1px solid #ddd;margin-bottom:20px;font-family:Arial,sans-serif;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
       .bar button{font:600 15px Arial,sans-serif;padding:10px 16px;background:#CC232A;color:#fff;border:0;cursor:pointer}
+      .bar .close{font:600 15px Arial,sans-serif;padding:10px 14px;border:1px solid #111;color:#111;text-decoration:none}
       .box{border:2px solid #111;padding:14px 18px;margin:0 0 26px;font-family:Arial,sans-serif;font-size:14px}
       .box strong{font-size:16px}
       h2{font:700 18px Arial,sans-serif;margin:34px 0 8px;border-top:2px solid #111;padding-top:14px}h3{font:700 15px Arial,sans-serif;margin:18px 0 6px}
       table{border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #ddd;vertical-align:top}th{width:40%;font-weight:normal;color:#555}
       .doc table td,.doc table th{border:1px solid #ccc}.sig img{max-width:340px;border-bottom:1px solid #111;display:block;margin:6px 0 4px}
       @media print{.bar{display:none}h2{page-break-before:auto}.sig{page-break-inside:avoid}}</style></head><body>
-      <div class="bar"><button onclick="print()">Print or save as PDF</button><span>Keep a copy for your records.</span></div>
+      <div class="bar"><a class="close" href="${forStaff ? '/admin/#/waivers' : '/#/documents'}" onclick="if (history.length > 1) { history.back(); return false; }">&lsaquo; Close</a><button onclick="print()">Print or save as PDF</button><span>Keep a copy for your records.</span></div>
       <div class="box"><strong>${e(w.docTitle)}</strong>, signed electronically by ${e(w.signerName)}${w.minor ? ` (parent or guardian of ${e(w.fields.name)})` : ''} on ${e(when(w.signedAt))}.
         ${w.countersign ? `<br>Countersigned for Winning Ranch by ${e(w.countersign.by)} on ${e(when(w.countersign.at))}.` : forStaff ? '<br>Not countersigned by the ranch yet.' : ''}</div>
       <div class="doc">${html}</div>
@@ -450,7 +461,7 @@ module.exports = function ranchRouter({ dataDir }) {
       horses: mine.map((h) => {
         const ups = db.updates.filter((u) => u.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         const withImage = ups.find((u) => u.media.some((m) => m.type === 'image'));
-        const stall = stallById(h.stallId);
+        const stall = stallById(boardApi.stallOfHorse(h));
         return {
           id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '',
           updates: ups.length,
@@ -464,7 +475,7 @@ module.exports = function ranchRouter({ dataDir }) {
   r.get('/horses/:id/updates', auth.requireUser, (req, res) => {
     const h = db.horses.find((x) => x.id === req.params.id);
     if (!canSeeHorse(req.user, h)) return res.status(404).json({ error: 'Horse not found.' });
-    const stall = stallById(h.stallId);
+    const stall = stallById(boardApi.stallOfHorse(h));
     const ups = db.updates.filter((u) => u.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     res.json({
       horse: { id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '' },
@@ -550,8 +561,8 @@ module.exports = function ranchRouter({ dataDir }) {
       map: MAP,
       areas: AREAS,
       stalls: db.stalls.map((s) => {
-        const h = horseInStall(s.id);
-        return { ...publicStall(s), status: s.status, horse: h ? { id: h.id, name: h.name } : null };
+        // Who is in it today, from the Stall board
+        return { ...publicStall(s), status: s.status, horse: boardApi.occupant(s.id) };
       }),
     });
   });
@@ -732,40 +743,56 @@ module.exports = function ranchRouter({ dataDir }) {
   });
 
   // ---- horses
+  // The same horses as the Stall board: a horse added there shows up here, and a stall picked here moves it there.
+  // The owner is an app account when they have one, else just the name typed on the board.
   staff.get('/horses', (_req, res) => {
     res.json({
-      horses: db.horses.map((h) => ({
-        ...h,
-        ownerName: (db.users.find((u) => u.id === h.ownerId) || {}).name || '',
-        stallName: (stallById(h.stallId) || {}).name || '',
-        updates: db.updates.filter((u) => u.horseId === h.id).length,
-      })),
+      horses: db.horses.map((h) => {
+        const place = boardApi.placeOf(h.id);
+        const stallId = boardApi.stallOfHorse(h);
+        return {
+          ...h,
+          stallId,
+          ownerName: (db.users.find((u) => u.id === h.ownerId) || {}).name || h.ownerName || '',
+          hasAccount: !!db.users.some((u) => u.id === h.ownerId),
+          stallName: (stallById(stallId) || {}).name || '',
+          stay: place ? { ref: place.stay.ref, kind: place.stay.kind || 'nightly', from: place.from, to: place.to, now: place.now, ours: !!place.stay.ours } : null,
+          updates: db.updates.filter((u) => u.horseId === h.id).length,
+        };
+      }),
     });
   });
 
+  // Checks and copies the fields onto h; the stall is not set here (see placeHorse on the board)
   function horseFields(b, h) {
     if ('name' in b) { const v = str(b.name, 80); if (!v) return 'Add the horse’s name.'; h.name = v; }
     if ('breed' in b) h.breed = str(b.breed, 80);
     if ('notes' in b) h.notes = str(b.notes, 1000);
     if ('arrivedOn' in b) { if (b.arrivedOn && !isDate(b.arrivedOn)) return 'Arrival date looks wrong.'; h.arrivedOn = b.arrivedOn || ''; }
-    if ('ownerId' in b) { if (!db.users.some((u) => u.id === b.ownerId)) return 'Pick the owner.'; h.ownerId = b.ownerId; }
-    if ('stallId' in b) {
-      if (b.stallId && !stallById(b.stallId)) return 'Pick a valid stall.';
-      const other = b.stallId && db.horses.find((x) => x !== h && x.active !== false && x.stallId === b.stallId);
-      if (other) return `${other.name} is already in that stall.`;
-      h.stallId = b.stallId || '';
-    }
+    if ('ownerId' in b) { if (b.ownerId && !db.users.some((u) => u.id === b.ownerId)) return 'Pick the owner.'; h.ownerId = b.ownerId || ''; }
+    if ('ownerName' in b) h.ownerName = str(b.ownerName, 100);
+    if ('stallId' in b && b.stallId && !stallById(b.stallId)) return 'Pick a valid stall.';
     if ('active' in b) h.active = !!b.active;
     return null;
   }
 
+  // A name change shows on the board too
+  function renameOnBoard(h) {
+    for (const b of db.bookings) {
+      const i = (b.horseIds || []).indexOf(h.id);
+      if (i >= 0 && Array.isArray(b.horses)) b.horses[i] = h.name;
+    }
+  }
+
   staff.post('/horses', async (req, res) => {
-    const h = { id: newId(), name: '', breed: '', notes: '', arrivedOn: '', ownerId: '', stallId: '', active: true, createdAt: now() };
-    const err = horseFields({ arrivedOn: new Date().toISOString().slice(0, 10), ...(req.body || {}) }, h);
+    const b = req.body || {};
+    const h = { id: newId(), name: '', breed: '', notes: '', arrivedOn: '', ownerId: '', ownerName: '', stallId: '', active: true, createdAt: now() };
+    const err = horseFields({ arrivedOn: boardApi.today(), ...b }, h);
     if (err) return res.status(400).json({ error: err });
     if (!h.name) return res.status(400).json({ error: 'Add the horse’s name.' });
-    if (!h.ownerId) return res.status(400).json({ error: 'Pick the owner.' });
     db.horses.push(h);
+    const placeErr = b.stallId ? boardApi.placeHorse(h, b.stallId, req.user) : null;
+    if (placeErr) { db.horses.pop(); return res.status(409).json({ error: placeErr }); }
     await store.save();
     res.status(201).json({ horse: h });
   });
@@ -773,8 +800,20 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.patch('/horses/:id', async (req, res) => {
     const h = db.horses.find((x) => x.id === req.params.id);
     if (!h) return res.status(404).json({ error: 'Horse not found.' });
-    const err = horseFields(req.body || {}, h);
+    const b = req.body || {};
+    const next = { ...h };
+    const err = horseFields(b, next);
     if (err) return res.status(400).json({ error: err });
+    // Leaving the ranch frees its stall; otherwise a new stall moves it on the board
+    const stallId = next.active === false ? '' : 'stallId' in b ? b.stallId || '' : undefined;
+    if (stallId !== undefined) {
+      const legacy = h.stallId;
+      h.stallId = next.stallId = ''; // an old Horses-tab stall gives way to the board
+      const placeErr = boardApi.placeHorse(next, stallId, req.user);
+      if (placeErr) { h.stallId = legacy; return res.status(409).json({ error: placeErr }); }
+    }
+    Object.assign(h, next);
+    renameOnBoard(h);
     await store.save();
     res.json({ horse: h });
   });
@@ -922,13 +961,13 @@ module.exports = function ranchRouter({ dataDir }) {
   });
 
   // ---- stall board: monthly boarders, nightly stays, the stall assistant
-  require('./board')({ staff, db, store, newId, now, str, isDate, stallById, horseInStall, HOLDS });
+  const boardApi = require('./board')({ staff, db, store, newId, now, str, isDate, stallById, horseInStall, HOLDS });
 
   // ---- time clock (shift, hours, reports)
   require('./shifts')({ staff, db, store, newId, now, str });
 
   // ---- app: messages and the home screen
-  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, docTitle: (id) => (docById(id) || {}).title || id });
+  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse: boardApi.stallOfHorse, docTitle: (id) => (docById(id) || {}).title || id });
 
   // ---- documents: what each person signed, what the ranch asked them to sign
   const mineWaivers = (u) => db.waivers.filter((w) => !w.deletedAt

@@ -170,7 +170,11 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.1; le
 .login .field input { background: #1c1a18; border-color: #3a362f; color: #F6F0E5; }
 
 /* Sheet + lightbox + toast */
-.sheet { border: 0; padding: 0; width: 100%; max-width: 640px; margin: auto auto 0; border-radius: 20px 20px 0 0; background: var(--card); color: var(--ink); max-height: 92vh; }
+.sheet { border: 0; padding: 0; width: 100%; max-width: 640px; margin: auto auto 0; border-radius: 20px 20px 0 0; background: var(--card); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
+  max-height: 92vh; max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px)); }
+.sheet__bar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: flex-end; padding: 8px 8px 0; height: 0; overflow: visible; pointer-events: none; }
+.sheet__x { pointer-events: auto; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--card); color: var(--ink); font-size: 1.8rem; line-height: 1; cursor: pointer; }
+.sheet h2 { padding-right: 44px; }
 .sheet::backdrop { background: rgba(0,0,0,.55); }
 .sheet__body { padding: 20px 18px calc(20px + var(--sab)); }
 .sheet h2 { font-size: 1.4rem; margin-bottom: 12px; }

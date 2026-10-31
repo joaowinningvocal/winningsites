@@ -220,17 +220,23 @@
     loading();
     const [{ horses }, { users }, { stalls }] = await Promise.all([api('GET', '/admin/horses'), api('GET', '/admin/users'), api('GET', '/admin/stalls')]);
     const owners = users.filter((u) => u.active).sort((a, b) => a.name.localeCompare(b.name));
-    const active = horses.filter((h) => h.active !== false).sort((a, b) => a.name.localeCompare(b.name));
-    const gone = horses.filter((h) => h.active === false);
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const active = horses.filter((h) => h.active !== false);
+    const here = active.filter((h) => h.stay && h.stay.now).sort(byName);
+    const coming = active.filter((h) => h.stay && !h.stay.now).sort(byName);
+    const noStall = active.filter((h) => !h.stay).sort(byName);
+    const gone = horses.filter((h) => h.active === false).sort(byName);
 
+    // The stalls come from the Stall board: one with a horse in it today can't be picked (one of ours can: it moves)
     const form = (h = {}) => `
       <form class="form-grid" data-horse-form="${h.id || 'new'}" novalidate>
         <div class="field"><label>Name</label><input name="name" value="${esc(h.name || '')}" required></div>
-        <div class="field"><label>Owner</label><select name="ownerId"><option value="">Pick the owner</option>${owners.map((u) => `<option value="${u.id}"${u.id === h.ownerId ? ' selected' : ''}>${esc(u.name)}${u.role === 'staff' ? ' (staff)' : ''}</option>`).join('')}</select></div>
-        <div class="field"><label>Stall</label><select name="stallId"><option value="">No stall</option>${stalls.map((s) => {
-          const taken = s.horse && s.horse.id !== h.id;
-          return `<option value="${s.id}"${s.id === h.stallId ? ' selected' : ''}${taken ? ' disabled' : ''}>${esc(s.name)}${taken ? `, ${esc(s.horse.name)}` : s.status === 'unavailable' ? ', not in use' : ''}</option>`;
+        <div class="field"><label>Stall</label><select name="stallId"><option value="">No stall</option>${stalls.filter((s) => s.status === 'available').map((s) => {
+          const taken = s.horse && s.horse.id !== h.id && !s.horse.ours;
+          return `<option value="${s.id}"${s.id === h.stallId ? ' selected' : ''}${taken ? ' disabled' : ''}>${esc(s.name)}${s.horse && s.horse.id !== h.id ? `, ${esc(s.horse.name)}${s.horse.ours ? ' (ours, can move)' : ''}` : ''}</option>`;
         }).join('')}</select></div>
+        <div class="field"><label>Owner with the app</label><select name="ownerId"><option value="">No app account yet</option>${owners.map((u) => `<option value="${u.id}"${u.id === h.ownerId ? ' selected' : ''}>${esc(u.name)}${u.role === 'staff' ? ' (staff)' : ''}</option>`).join('')}</select></div>
+        <div class="field"><label>Owner&rsquo;s name</label><input name="ownerName" value="${esc(h.hasAccount ? '' : h.ownerName || '')}" placeholder="When they don&rsquo;t have the app yet"></div>
         <div class="field"><label>Breed</label><input name="breed" value="${esc(h.breed || '')}"></div>
         <div class="field"><label>Arrived on</label><input name="arrivedOn" type="date" value="${esc(h.arrivedOn || new Date().toISOString().slice(0, 10))}"></div>
         <div class="field full"><label>Team notes (owners don&rsquo;t see these)</label><textarea name="notes" rows="2">${esc(h.notes || '')}</textarea></div>
@@ -242,20 +248,26 @@
         </div>
       </form>`;
 
+    const stayText = (s) => (s.ours ? 'Ours' : s.kind === 'monthly' ? 'Monthly boarder' : 'Nightly')
+      + (s.now ? (s.to ? `, leaves ${fmtDay(s.to)}` : '') : `, arrives ${fmtDay(s.from)}`);
     const card = (h) => h.id === editId ? `<article class="card">${form(h)}</article>` : `
       <article class="card">
         <div class="card__top"><h3>${esc(h.name)}</h3><span class="muted">${esc(h.stallName || 'No stall')}</span></div>
-        <dl><dt>Owner</dt><dd>${esc(h.ownerName || 'None')}</dd><dt>Updates</dt><dd>${h.updates}</dd>${h.breed ? `<dt>Breed</dt><dd>${esc(h.breed)}</dd>` : ''}</dl>
+        <dl>${h.stay ? `<dt>Stay</dt><dd>${esc(stayText(h.stay))} <a class="textlink" href="#/board">(${esc(h.stay.ref)})</a></dd>` : ''}
+          <dt>Owner</dt><dd>${esc(h.ownerName || 'None')}${h.ownerName && !h.hasAccount ? ' <small class="muted">(no app account yet)</small>' : ''}</dd>
+          <dt>Updates</dt><dd>${h.updates}</dd>${h.breed ? `<dt>Breed</dt><dd>${esc(h.breed)}</dd>` : ''}</dl>
         <div class="btn-row"><a class="btn btn--sm btn--red" href="#/post" data-post="${h.id}">Post update</a><button class="btn btn--sm btn--ghost" data-edit="${h.id}">Edit</button></div>
       </article>`;
+    const group = (title, list) => (list.length ? `<h2 style="margin-top:32px">${title} <small class="muted">(${list.length})</small></h2><div class="cards">${list.map(card).join('')}</div>` : '');
 
     root.innerHTML = `
       <div class="wrap">
         <h1>Horses</h1>
-        ${owners.length ? '' : '<div class="empty-box" style="margin-bottom:18px"><p>Add the owner in <a class="textlink" href="#/people">People</a> first, then add their horse here.</p></div>'}
+        <p class="muted">The same horses as the <a class="textlink" href="#/board">Stall board</a>: a horse added there shows up here, and the stall you pick here moves it there.</p>
         ${editId === 'new' ? `<div class="panel">${form()}</div>` : '<p><button class="btn btn--red" data-edit="new">Add a horse</button></p>'}
-        <div class="cards" style="margin-top:18px">${active.map(card).join('') || '<p class="muted">No horses at the ranch yet.</p>'}</div>
-        ${gone.length ? `<h2 style="margin-top:40px">Left the ranch</h2><div class="cards">${gone.map(card).join('')}</div>` : ''}
+        ${group('At the ranch', here)}${group('Coming', coming)}${group('No stall', noStall)}
+        ${active.length ? '' : '<p class="muted" style="margin-top:18px">No horses yet. Add one here or on the Stall board.</p>'}
+        ${group('Left the ranch', gone)}
       </div>`;
 
     root.onclick = (e) => {
@@ -267,7 +279,7 @@
       const act = e.target.closest('[data-active]');
       if (act) {
         const id = act.closest('form').dataset.horseForm;
-        api('PATCH', '/admin/horses/' + id, { active: act.dataset.active === '1', ...(act.dataset.active === '1' ? {} : { stallId: '' }) })
+        api('PATCH', '/admin/horses/' + id, { active: act.dataset.active === '1' })
           .then(() => { toast(act.dataset.active === '1' ? 'Welcome back' : 'Marked as left. The stall is free again.'); horsesView(); })
           .catch((ex) => toast(ex.message));
       }

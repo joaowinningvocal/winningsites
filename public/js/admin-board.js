@@ -2,11 +2,13 @@
    - The barn on a given day the way the ranch numbers it: right side 1-10, left side 11-20, 1 and 11 at the bottom
    - Two weeks ahead, stall by stall, to see what's booked and what's free
    - Add horses to stalls to block them out: monthly boarders, nightly stays, or one of our own horses (can move)
+   - Press and hold a horse (or drag it with the mouse) to move it to another stall; dropped on a horse, the two swap
    - The stall assistant: "5 horses coming Nov 15 - Nov 17" picks stalls close together and books them
    - Without the assistant, "Find stalls" does the same picking and the team books with one tap */
 window.WRBoard = (() => {
   const { api, esc, toast, fmtDay } = window.WR;
   const DAYS = 14;
+  const MAX_PHONES = 3;
   const state = { day: null, data: null, chat: [], found: null, finder: null };
   let root = null;
 
@@ -77,6 +79,7 @@ window.WRBoard = (() => {
             <div class="kpi"><span>Nightly</span><strong>${count('nightly')}</strong></div>
             <div class="kpi"><span>Our horses</span><strong>${count('ours')}</strong><small>can move to free a stall</small></div>
           </div>
+          <p class="muted board-hint">To move a horse, press and hold it, then drag it to another stall. Drop it on another horse to swap them.</p>
           ${barn(day)}
           ${legend()}
         </section>
@@ -225,7 +228,7 @@ window.WRBoard = (() => {
       dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) dlg.close(); });
       document.body.appendChild(dlg);
     }
-    dlg.innerHTML = `<div class="board-dlg__body"><button type="button" class="board-dlg__x" data-close aria-label="Close">&times;</button>${html}</div>`;
+    dlg.innerHTML = `<form method="dialog" class="board-dlg__bar"><button class="board-dlg__x" aria-label="Close">&times;</button></form><div class="board-dlg__body">${html}</div>`;
     if (!dlg.open) dlg.showModal();
     wire(dlg);
     return dlg;
@@ -242,7 +245,7 @@ window.WRBoard = (() => {
       <dl><dt>Dates</dt><dd>${esc(fmtDay(x.from))} to ${x.to ? esc(fmtDay(x.to)) : 'no end date'}${x.nights ? `, ${plural(x.nights, 'night', 'nights')}` : ''}</dd>
         ${x.stallIds.length > 1 ? `<dt>Together with</dt><dd>${x.stallIds.filter((o) => o !== id).map((o) => esc(`${label(byId(o))}${horseIn(x, o) ? ` (${horseIn(x, o)})` : ''}`)).join(', ')}</dd>` : ''}
         ${x.name ? `<dt>Owner</dt><dd>${esc(x.name)}</dd>` : ''}
-        ${x.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(x.phone)}">${esc(x.phone)}</a></dd>` : ''}
+        ${x.phones.length ? `<dt>Phone${x.phones.length > 1 ? 's' : ''}</dt><dd>${x.phones.map((p) => `<a href="tel:${esc(p)}">${esc(p)}</a>`).join('<br>')}</dd>` : ''}
         ${x.notes ? `<dt>Notes</dt><dd>${esc(x.notes)}</dd>` : ''}
         <dt>Added by</dt><dd>${esc(x.source === 'web' ? 'Website request' : x.source === 'ai' ? `Stall assistant, for ${x.createdBy}` : x.createdBy || 'The team')}</dd></dl>
       ${x.source === 'web' ? '<p class="muted">From the website. Change it in <a class="textlink" href="#/bookings">Bookings</a>.</p>' : `<div class="btn-row">
@@ -287,8 +290,10 @@ window.WRBoard = (() => {
   function editor(x) {
     const editing = !!x.id;
     const stalls = state.data.stalls.filter((s) => s.status === 'available').sort(order);
-    const rowsOf = x.stallIds.map((id, i) => ({ stallId: id, name: (x.horses || [])[i] || '', pony: !!(x.ponies || [])[i] }));
-    const row = (r) => `<div class="horse-row">
+    const rowsOf = x.stallIds.map((id, i) => ({ stallId: id, name: (x.horses || [])[i] || '', pony: !!(x.ponies || [])[i], horseId: (x.horseIds || [])[i] || '' }));
+    const phones = (x.phones && x.phones.length ? x.phones : [x.phone || '']).slice(0, MAX_PHONES);
+    const phoneRow = (p, i) => `<div class="phone-row"><input name="phone" type="tel" value="${esc(p)}" aria-label="Phone ${i + 1}" maxlength="40" autocomplete="off">${i ? '<button type="button" class="btn btn--sm btn--ghost" data-del-phone aria-label="Remove this number">&times;</button>' : ''}</div>`;
+    const row = (r) => `<div class="horse-row"><input type="hidden" name="horseId" value="${esc(r.horseId || '')}">
         <select name="stall" aria-label="Stall">${stalls.map((s) => `<option value="${s.id}"${s.id === r.stallId ? ' selected' : ''}>${esc(label(s))}${s.ponyOnly ? ' (ponies)' : ''}</option>`).join('')}</select>
         <input name="horse" value="${esc(r.name)}" placeholder="Horse name" aria-label="Horse name" maxlength="80">
         <label class="choice"><input type="checkbox" name="pony"${r.pony ? ' checked' : ''}><span>Pony</span></label>
@@ -303,8 +308,9 @@ window.WRBoard = (() => {
         <div class="form-grid">
           <div class="field"><label for="s-from">Arrives</label><input id="s-from" name="from" type="date" value="${esc(x.from || state.day)}"></div>
           <div class="field"><label for="s-to">Leaves</label><input id="s-to" name="to" type="date" value="${esc(x.to || '')}"><small class="muted" id="s-to-hint">${x.kind === 'monthly' ? 'Leave empty while they&rsquo;re boarding' : 'The morning they leave'}</small></div>
-          <div class="field"><label for="s-name">Owner</label><input id="s-name" name="name" value="${esc(x.name || '')}" maxlength="100"></div>
-          <div class="field"><label for="s-phone">Phone</label><input id="s-phone" name="phone" type="tel" value="${esc(x.phone || '')}" maxlength="40"></div>
+          <div class="field full"><label for="s-name">Owner</label><input id="s-name" name="name" value="${esc(x.name || '')}" maxlength="100"></div>
+          <div class="field full"><span class="field-label">Phone</span><div class="phone-rows" id="phones">${phones.map(phoneRow).join('')}</div>
+            <button type="button" class="btn btn--sm btn--ghost" data-add-phone style="justify-self:start"${phones.length >= MAX_PHONES ? ' hidden' : ''}>+ Phone number</button></div>
           <div class="field full"><label for="s-notes">Notes</label><textarea id="s-notes" name="notes" rows="2" maxlength="1000">${esc(x.notes || '')}</textarea></div>
         </div>
         <label class="choice"><input type="checkbox" name="ours"${x.ours ? ' checked' : ''}><span>One of our own horses (the stall can still be rented; the horse moves to the other ranch)</span></label>
@@ -318,8 +324,16 @@ window.WRBoard = (() => {
         if (e.target.closest('[data-add-row]')) {
           const used = [...form.querySelectorAll('[name=stall]')].map((sel) => sel.value);
           const next = stalls.find((s) => !used.includes(s.id) && !s.ponyOnly && cell(s, el.from.value || state.day).kind === 'free') || stalls[0];
-          form.querySelector('#rows').insertAdjacentHTML('beforeend', row({ stallId: next.id, name: '', pony: false }));
+          form.querySelector('#rows').insertAdjacentHTML('beforeend', row({ stallId: next.id, name: '', pony: false, horseId: '' }));
         }
+        const list = form.querySelector('#phones');
+        if (e.target.closest('[data-add-phone]') && list.children.length < MAX_PHONES) {
+          list.insertAdjacentHTML('beforeend', phoneRow('', list.children.length));
+          list.lastElementChild.querySelector('input').focus();
+        }
+        const dp = e.target.closest('[data-del-phone]');
+        if (dp) dp.closest('.phone-row').remove();
+        form.querySelector('[data-add-phone]').hidden = list.children.length >= MAX_PHONES;
         const del = e.target.closest('[data-del-row]');
         if (del && form.querySelectorAll('.horse-row').length > 1) del.closest('.horse-row').remove();
       };
@@ -331,8 +345,10 @@ window.WRBoard = (() => {
           stallIds: rows.map((r) => r.querySelector('[name=stall]').value),
           horses: rows.map((r) => r.querySelector('[name=horse]').value),
           ponies: rows.map((r) => r.querySelector('[name=pony]').checked),
+          horseIds: rows.map((r) => r.querySelector('[name=horseId]').value),
           kind: el.kind.value, from: el.from.value, to: el.to.value || null,
-          name: el.name.value, phone: el.phone.value, notes: el.notes.value, ours: el.ours.checked,
+          name: el.name.value, phones: [...form.querySelectorAll('[name=phone]')].map((i) => i.value.trim()).filter(Boolean),
+          notes: el.notes.value, ours: el.ours.checked,
         };
         const btn = form.querySelector('[type=submit]');
         btn.disabled = true;
@@ -358,6 +374,7 @@ window.WRBoard = (() => {
     const g = e.target.closest('[data-go]');
     if (g) return go(g.dataset.go);
     const t = e.target.closest('[data-stall]');
+    if (t && drag.justDropped) return;
     if (t) return openStall(t.dataset.stall, state.day);
     const c = e.target.closest('[data-cell]');
     if (c) return openStall(c.dataset.cell, c.dataset.day);
@@ -386,6 +403,83 @@ window.WRBoard = (() => {
     if (e.target.id === 'ai-form') return ask(e.target);
     if (e.target.id === 'find-form') return find(e.target);
   }
+
+  // ---------------------------------------------------------------- drag a horse to another stall
+  // Phones: press and hold ~0.4 s, then drag (moving the finger sooner just scrolls). Mouse: drag right away.
+  const drag = { id: null, tile: null, pointerId: null, startX: 0, startY: 0, active: false, over: null, ghost: null, timer: 0, justDropped: false };
+  const draggable = (tile) => tile && !tile.disabled && /\bis-(monthly|nightly|ours|horse)\b/.test(tile.className);
+
+  function lift(x, y) {
+    drag.active = true;
+    drag.tile.classList.add('is-lifted');
+    const r = drag.tile.getBoundingClientRect();
+    drag.ghost = drag.tile.cloneNode(true);
+    drag.ghost.classList.add('drag-ghost');
+    drag.ghost.removeAttribute('data-stall');
+    drag.ghost.style.width = r.width + 'px';
+    document.body.appendChild(drag.ghost);
+    if (navigator.vibrate) navigator.vibrate(12);
+    follow(x, y);
+  }
+  function follow(x, y) {
+    drag.ghost.style.transform = `translate(${x - drag.ghost.offsetWidth / 2}px, ${y - 30}px)`;
+    const hit = document.elementFromPoint(x, y);
+    const t = hit && hit.closest('.stall-tile[data-stall]');
+    const ok = t && !t.disabled && t.dataset.stall !== drag.id ? t : null;
+    if (ok !== drag.over) {
+      if (drag.over) drag.over.classList.remove('is-target');
+      if (ok) ok.classList.add('is-target');
+      drag.over = ok;
+    }
+  }
+  function endDrag() {
+    clearTimeout(drag.timer);
+    if (drag.ghost) drag.ghost.remove();
+    if (drag.tile) drag.tile.classList.remove('is-lifted');
+    if (drag.over) drag.over.classList.remove('is-target');
+    Object.assign(drag, { id: null, tile: null, pointerId: null, active: false, over: null, ghost: null });
+  }
+
+  async function moveTo(from, to) {
+    try {
+      const r = await api('POST', '/admin/stays/move', { from, to, day: state.day });
+      await refresh();
+      toast(`Moved ${r.moved}.`, { action: 'Undo', onAction: async () => {
+        try { await api('POST', '/admin/stays/move', { from: to, to: from, day: state.day }); toast('Moved back'); refresh(); } catch (ex) { toast(ex.message); }
+      } });
+    } catch (ex) { toast(ex.message); }
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+    const tile = e.target.closest && e.target.closest('.stall-tile[data-stall]');
+    if (!draggable(tile) || e.button > 0) return;
+    endDrag();
+    Object.assign(drag, { id: tile.dataset.stall, tile, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY });
+    if (e.pointerType !== 'mouse') drag.timer = setTimeout(() => lift(drag.startX, drag.startY), 400);
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!drag.id || e.pointerId !== drag.pointerId) return;
+    if (!drag.active) {
+      const far = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+      if (e.pointerType === 'mouse' && far > 6) lift(e.clientX, e.clientY);
+      else if (far > 10) return endDrag(); // the finger moved before the hold: it's a scroll
+      else return;
+    }
+    follow(e.clientX, e.clientY);
+  });
+  document.addEventListener('pointerup', (e) => {
+    if (!drag.id || e.pointerId !== drag.pointerId) return;
+    const { active, id, over } = drag;
+    endDrag();
+    if (!active) return; // a plain tap opens the stall
+    drag.justDropped = true;
+    setTimeout(() => { drag.justDropped = false; }, 350);
+    if (over) moveTo(id, over.dataset.stall);
+  });
+  document.addEventListener('pointercancel', endDrag);
+  // While a horse is lifted the page must not scroll under the finger
+  document.addEventListener('touchmove', (e) => { if (drag.active) e.preventDefault(); }, { passive: false });
+  document.addEventListener('contextmenu', (e) => { if (drag.id && e.target.closest && e.target.closest('.stall-tile')) e.preventDefault(); });
 
   const $ = (s) => root.querySelector(s);
   return { view };
