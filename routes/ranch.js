@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { createStore } = require('../lib/store');
 const { createAuth, rateLimit } = require('../lib/auth');
-const { seedStalls, seedDemo, STALL_SIZE } = require('../lib/ranch-seed');
+const { seedStalls, seedDemo, seedReviewAccounts, STALL_SIZE } = require('../lib/ranch-seed');
 const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
 const { DOCS, docById, allFields } = require('../lib/docs');
 const mailer = require('../lib/mailer');
@@ -144,6 +144,7 @@ module.exports = function ranchRouter({ dataDir }) {
     store.save();
   }
   if (process.env.SEED_DEMO === '1') seedDemo(store, auth, uploads);
+  seedReviewAccounts(store, uploads); // App Store and Google Play review logins
 
   // ---------------------------------------------------------- helpers
   const newId = () => crypto.randomBytes(8).toString('hex');
@@ -747,7 +748,8 @@ module.exports = function ranchRouter({ dataDir }) {
   // The owner is an app account when they have one, else just the name typed on the board.
   staff.get('/horses', (_req, res) => {
     res.json({
-      horses: db.horses.map((h) => {
+      // The store review accounts' sample horses stay out of the team's lists
+      horses: db.horses.filter((h) => !h.demo).map((h) => {
         const place = boardApi.placeOf(h.id);
         const stallId = boardApi.stallOfHorse(h);
         return {

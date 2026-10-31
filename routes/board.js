@@ -130,7 +130,7 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
       let h = stay.horseIds[i] && db.horses.find((x) => x.id === stay.horseIds[i]);
       if (!name) { stay.horseIds[i] = ''; return; }
       if (!h) {
-        h = db.horses.find((x) => x.active !== false && x.name.toLowerCase() === name.toLowerCase() && !x.stallId
+        h = db.horses.find((x) => x.active !== false && !x.demo && x.name.toLowerCase() === name.toLowerCase() && !x.stallId
           && !linkedStays(x.id).some((b) => b.id !== stay.id && overlaps(b, stay.from, stay.to)));
       }
       if (!h) {

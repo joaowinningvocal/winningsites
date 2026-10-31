@@ -53,7 +53,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   const isManagement = (u) => !!u && management().includes(u.id);
   const inChannel = (u, c) => u.active !== false && (c.key === 'management' ? isManagement(u)
     : c.key === 'workers' ? isTeam(u) || isManagement(u)
-      : c.key === 'boarders' ? u.role === 'owner' || isManagement(u) : false);
+      : c.key === 'boarders' ? (u.role === 'owner' && !u.demo) || isManagement(u) : false); // store review accounts stay out
   const channelMembers = (c) => db.users.filter((u) => inChannel(u, c));
   const ownerChat = (ownerId) => {
     let c = db.chats.find((x) => x.type === 'owner' && x.ownerId === ownerId);
@@ -129,7 +129,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
 
   // ---------------------------------------------------------------- groups and direct messages (team)
   const requireTeam = (req, res, next) => (isTeam(req.user) ? next() : res.status(403).json({ error: 'Only the ranch team can do this.' }));
-  const people = (u) => db.users.filter((x) => x.active !== false && x.id !== u.id && (x.role === 'owner' || isTeam(x)));
+  const people = (u) => db.users.filter((x) => x.active !== false && !x.demo && x.id !== u.id && (x.role === 'owner' || isTeam(x)));
 
   r.get('/chats/people', auth.requireUser, requireTeam, (req, res) => {
     res.json({ people: people(req.user).map((x) => ({ id: x.id, name: x.name, role: x.role, position: x.position || (x.role === 'staff' ? 'office' : undefined) }))
