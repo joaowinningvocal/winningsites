@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stall Board Guide | Winning Ranch</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E0E0E">
+<link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="preload" href="/fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+/* How-to for the Stall board, for Jenna and the barn manager on their phones.
+   One column; small copies of the board's own tiles show what each step looks like. */
+@font-face { font-family: "Cinzel"; src: url("/fonts/cinzel-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Barlow"; src: url("/fonts/barlow-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Barlow"; src: url("/fonts/barlow-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+:root {
+  --red: #CC232A; --ink: #0E0E0E; --paper: #FFFFFF; --sand: #E7D7BA; --sand-soft: #F3EADB; --dust: #625B52; --on-ink: #F6F0E5;
+  --line: rgba(14, 14, 14, .16); --free: #EEF6F0; --free-ink: #1f6b3a; --night: #F6D9D6; --ours: #E9E6E1; --off: #CFCAC2;
+  --display: "Cinzel", "Trajan Pro", "Times New Roman", serif; --text: "Barlow", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sand-soft); color: var(--ink); font: 17px/1.55 var(--text); }
+.top { position: sticky; top: 0; z-index: 5; background: var(--ink); color: var(--on-ink); display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+.top a { color: var(--on-ink); text-decoration: none; font-weight: 600; padding: 8px 12px; border: 1px solid rgba(246, 240, 229, .35); white-space: nowrap; }
+.top span { font-family: var(--display); font-weight: 600; letter-spacing: .03em; }
+main { max-width: 720px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 30px; }
+h1, h2 { font-family: var(--display); font-weight: 600; line-height: 1.15; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(1.8rem, 6vw, 2.4rem); }
+h2 { font-size: 1.35rem; }
+p { margin: 0; }
+.lead { font-size: 1.08rem; }
+nav.toc { background: var(--paper); border: 1px solid var(--line); padding: 14px 18px; }
+nav.toc p { font-size: .78rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--dust); margin-bottom: 6px; }
+nav.toc ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+nav.toc a { color: var(--ink); }
+section { display: grid; gap: 12px; scroll-margin-top: 80px; }
+ol.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 8px; }
+ol.steps li::marker { font-weight: 600; color: var(--red); }
+ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.ui { font-weight: 600; white-space: nowrap; }
+.note { background: var(--paper); border-left: 4px solid var(--red); padding: 10px 14px; font-size: .98rem; }
+.case { background: var(--paper); border: 1px solid var(--line); padding: 14px 16px; display: grid; gap: 8px; }
+.case h3 { margin: 0; font-size: 1.02rem; }
+
+/* Copies of the board's tiles */
+.demo { display: grid; gap: 6px; }
+.demo.two { grid-template-columns: 1fr 1fr; }
+.tile { position: relative; display: grid; align-content: center; min-height: 58px; padding: 6px 10px 6px 44px; border: 1px solid var(--line); font-size: .9rem; line-height: 1.2; }
+.tile b { position: absolute; left: 0; top: 0; bottom: 0; width: 36px; display: grid; place-items: center; font: 600 1rem var(--display); background: rgba(14, 14, 14, .06); }
+.tile strong { font-weight: 600; font-size: .98rem; }
+.tile small { color: var(--dust); font-size: .82rem; }
+.tile.free { background: var(--free); } .tile.free strong { color: var(--free-ink); }
+.tile.monthly { background: var(--sand); }
+.tile.nightly { background: var(--night); }
+.tile.ours { background: repeating-linear-gradient(135deg, var(--ours) 0 6px, #F5F3EF 6px 12px); }
+.tile.off { background: repeating-linear-gradient(135deg, var(--off) 0 4px, #E2DED7 4px 8px); color: var(--dust); }
+.tile.target { outline: 3px solid var(--red); outline-offset: -3px; }
+.tile.lifted { opacity: .4; }
+.tile .warn { color: #A71B21; font-weight: 600; font-size: .8rem; }
+.arrow { text-align: center; color: var(--dust); font-size: .9rem; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { font: 600 .92rem var(--text); padding: 8px 14px; border: 2px solid var(--ink); background: transparent; }
+.btn.red { background: var(--red); border-color: var(--red); color: #fff; }
+footer { color: var(--dust); font-size: .92rem; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<header class="top"><a href="/admin/#/board">&lsaquo; Stall board</a><span>How it works</span></header>
+<main>
+  <div style="display:grid;gap:10px">
+    <h1>Stall board guide</h1>
+    <p class="lead">The Stall board shows who is in every stall, today and for the next two weeks. Open it from the dashboard (<span class="ui">Stall board</span> tab) or from <span class="ui">Stall board</span> on the app's Home screen.</p>
+  </div>
+
+  <nav class="toc" aria-label="On this page"><p>On this page</p><ol>
+    <li><a href="#read">Reading the board</a></li>
+    <li><a href="#add">Putting a horse in a stall</a></li>
+    <li><a href="#available">Making a stall available again</a></li>
+    <li><a href="#move">Moving horses between stalls</a></li>
+    <li><a href="#ours">Our own horses</a></li>
+    <li><a href="#find">Finding stalls for a group</a></li>
+    <li><a href="#horses">The Horses tab</a></li>
+  </ol></nav>
+
+  <section id="read">
+    <h2>1. Reading the board</h2>
+    <p>The barn is drawn the way it stands: 11 to 20 on the left, 1 to 10 on the right, the aisle in between and the doors at the bottom. Each stall faces the one 10 numbers away (5 faces 15).</p>
+    <div class="demo two">
+      <div class="tile free"><b>20</b><strong>Free</strong><small>12' x 22'</small></div>
+      <div class="tile free"><b>10</b><strong>Free</strong><small>Ponies only</small></div>
+      <div class="tile ours"><b>19</b><strong>Drogo</strong><small>Ours, can move</small></div>
+      <div class="tile monthly"><b>9</b><strong>Molly</strong><small>Monthly, Bailey</small></div>
+      <div class="tile nightly"><b>12</b><strong>Blue</strong><small>Nightly, leaves Nov 17</small></div>
+      <div class="tile off"><b>1</b><strong>Not in use</strong></div>
+    </div>
+    <ul>
+      <li><b>Green</b>: free. <b>Sand</b>: monthly boarder. <b>Pink</b>: nightly guest. <b>Striped gray</b>: one of our horses. <b>Dark stripes</b>: not in use.</li>
+      <li>The arrows and the date at the top change the day. The calendar under the barn shows the next two weeks; tap any day of a stall to open it.</li>
+      <li>"Boarder" or "Our horse" with no name are the horses from your barn sheet. Tap them and type the name.</li>
+    </ul>
+  </section>
+
+  <section id="add">
+    <h2>2. Putting a horse in a stall</h2>
+    <p>This is how you block a stall out.</p>
+    <ol class="steps">
+      <li>Tap the stall.</li>
+      <li>Tap <span class="ui">Add a horse to this stall</span>.</li>
+      <li>Type the horse's name. Tick <span class="ui">Pony</span> if it is one (only ponies go in stall 10).</li>
+      <li>More horses arriving together? <span class="ui">+ Another horse</span> adds a row, each with its own stall.</li>
+      <li>Pick <span class="ui">Monthly boarder</span> (leave <span class="ui">Leaves</span> empty) or <span class="ui">Nightly</span> (arrival and departure day).</li>
+      <li>Add the owner, up to 3 phone numbers (<span class="ui">+ Phone number</span>) and notes like the AM and PM feed.</li>
+      <li>Tap <span class="ui">Add to the board</span>.</li>
+    </ol>
+    <div class="note">To change a horse that's already there (name, notes, phones, dates), tap the stall and then <span class="ui">Edit</span>. There's no need to add it again.</div>
+  </section>
+
+  <section id="available">
+    <h2>3. Making a stall available again</h2>
+    <p>Tap the stall. What you do next depends on why it's taken.</p>
+    <div class="case">
+      <h3>A horse is leaving</h3>
+      <p>Tap <span class="ui">Moves out</span>. The stall is free from that day. Nightly stays free up by themselves on their departure day.</p>
+      <div class="btns"><span class="btn red">Edit</span><span class="btn">Moves out Oct 30</span><span class="btn">Remove</span></div>
+    </div>
+    <div class="case">
+      <h3>It was a mistake, or the stall is actually empty</h3>
+      <p>Tap <span class="ui">Remove</span>. Use this for the unnamed horses from the barn sheet too when that stall is really empty.</p>
+    </div>
+    <div class="case">
+      <h3>Only one horse of a group is leaving</h3>
+      <p>Tap <span class="ui">Edit</span> and remove that horse's row with its <span class="ui">&times;</span>. <span class="ui">Moves out</span> and <span class="ui">Remove</span> apply to the whole group.</p>
+    </div>
+    <div class="case">
+      <h3>It says "Not in use"</h3>
+      <p>Dashboard → <span class="ui">Stalls</span> → tap the stall → <span class="ui">Status: In use</span> → <span class="ui">Save stall</span>.</p>
+    </div>
+  </section>
+
+  <section id="move">
+    <h2>4. Moving horses between stalls</h2>
+    <p>For when you rotate horses.</p>
+    <ol class="steps">
+      <li>Press and hold the horse for about half a second (on a computer, just drag it).</li>
+      <li>Drag it onto another stall. The stall it will land in gets a red border.</li>
+      <li>Let go. If there was a horse there, the two swap.</li>
+    </ol>
+    <div class="demo two" aria-hidden="true">
+      <div class="tile monthly lifted"><b>3</b><strong>Hebe</strong><small>Monthly</small></div>
+      <div class="tile free target"><b>11</b><strong>Free</strong></div>
+    </div>
+    <p>A message shows what moved, with an <span class="ui">Undo</span> button for a few seconds. The board won't let a horse land in a stall that's not in use, or a horse that isn't a pony in stall 10.</p>
+  </section>
+
+  <section id="ours">
+    <h2>5. Our own horses</h2>
+    <p>Tick <span class="ui">One of our own horses</span> when you add them. Their stall still counts as available for rent, because they can go to the other ranch. When a booking lands on one, the stall says:</p>
+    <div class="demo"><div class="tile monthly"><b>13</b><strong>Guest horse</strong><small>Monthly</small><span class="warn">Move our horse out (Hebe)</span></div></div>
+    <p>A new horse in a stall that still has an unnamed horse from the barn sheet simply replaces it.</p>
+  </section>
+
+  <section id="find">
+    <h2>6. Finding stalls for a group</h2>
+    <p>Horses that arrive together are bonded, so they should stay close. At the top of the board:</p>
+    <ul>
+      <li><b>Stall assistant</b> (when it's turned on): type something like <i>"I have 5 horses coming in Nov 15 - Nov 17"</i>. It picks stalls side by side and books them. Each answer has an <span class="ui">Undo</span> button.</li>
+      <li><b>Find stalls yourself</b>: fill in how many horses, how many ponies and the dates, tap <span class="ui">Find stalls</span>, then <span class="ui">Book these</span> on the option you like.</li>
+    </ul>
+  </section>
+
+  <section id="horses">
+    <h2>7. The Horses tab</h2>
+    <p>The Horses tab lists the same horses as the board. A horse you add on the board shows up there, with the owner's name even if they don't have the app yet. Picking a stall in Horses moves the horse on the board, and <span class="ui">Left the ranch</span> frees its stall.</p>
+    <p>That's also where the team posts photos and videos for a horse (<span class="ui">Post update</span>).</p>
+  </section>
+
+  <footer>Something not working or not clear? Message João.</footer>
+</main>
+</body>
+</html>

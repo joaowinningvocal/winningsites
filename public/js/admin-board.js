@@ -62,7 +62,7 @@ window.WRBoard = (() => {
     root.innerHTML = `
       <div class="wrap board-page">
         <h1>Stall board</h1>
-        <p class="muted">Who&rsquo;s in each stall. Tap a stall to add a horse, change a booking or move someone out.</p>
+        <p class="muted">Who&rsquo;s in each stall. Tap a stall to add a horse, change a booking or move someone out. <a class="textlink" href="/help/stall-board">How it works</a></p>
         ${d.ai ? assistantPanel() : ''}
         ${finderPanel(!d.ai)}
         <section class="panel">
