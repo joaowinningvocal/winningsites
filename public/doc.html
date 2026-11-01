@@ -20,6 +20,8 @@
   .pages canvas { width: 100%; max-width: 900px; height: auto; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }
   .msg { text-align: center; padding: 40px 16px; }
   .msg a { color: var(--red); font-weight: 600; }
+  /* In the app a downloaded PDF opens full screen with no way back */
+  .in-app #download { display: none; }
 </style>
 </head>
 <body>
@@ -33,9 +35,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (() => {
-  // Only documents we publish can be opened here
+  // Only documents we publish can be opened here: ?file=w9, or ?src=/docs/<name>.pdf (the originals of the waivers)
   const FILES = { w9: { url: '/docs/w9.pdf', title: 'Form W-9' } };
-  const doc = FILES[new URLSearchParams(location.search).get('file')];
+  const q = new URLSearchParams(location.search);
+  const src = q.get('src') || '';
+  const doc = FILES[q.get('file')] || (/^\/docs\/[\w-]+\.pdf$/.test(src) ? { url: src, title: 'Original document' } : null);
   const pages = document.getElementById('pages');
   const close = document.getElementById('close');
   close.addEventListener('click', (e) => {
@@ -63,5 +67,6 @@
   }).catch(fallback);
 })();
 </script>
+<script src="/js/app-nav.js" data-bar="off" defer></script>
 </body>
 </html>

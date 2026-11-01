@@ -158,7 +158,7 @@ module.exports = function shifts({ staff, db, store, newId, now, str }) {
     const rep = req.query.kind === 'weekly'
       ? H.weeklyReport({ start: H.weekOf(day, tc().weekStart), shifts: live(), users: db.users })
       : H.dailyReport({ day, shifts: live(), users: db.users });
-    res.type('html').send(`<!doctype html><meta charset="utf-8"><title>${rep.subject.replace(/</g, '')}</title><body style="max-width:900px;margin:20px auto;padding:0 16px">${rep.html}</body>`);
+    res.type('html').send(`<!doctype html><meta charset="utf-8"><title>${rep.subject.replace(/</g, '')}</title><meta name="viewport" content="width=device-width, initial-scale=1"><body style="max-width:900px;margin:20px auto;padding:0 16px">${rep.html}<script src="/js/app-nav.js" defer></script></body>`);
   });
 
   function parseTime(day, hm) {
