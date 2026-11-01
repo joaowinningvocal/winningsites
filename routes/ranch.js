@@ -11,7 +11,7 @@ const { createStore } = require('../lib/store');
 const { createAuth, rateLimit } = require('../lib/auth');
 const { seedStalls, seedDemo, seedReviewAccounts, STALL_SIZE } = require('../lib/ranch-seed');
 const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
-const { DOCS, docById, allFields } = require('../lib/docs');
+const { DOCS, docById, allFields, fillValues, FILL_PARTS } = require('../lib/docs');
 const mailer = require('../lib/mailer');
 
 const IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
@@ -367,8 +367,17 @@ module.exports = function ranchRouter({ dataDir }) {
     try { sig = (await fs.promises.readFile(path.join(uploads, 'private', path.basename(w.signatureFile)))).toString('base64'); } catch (_) {}
     const e = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'long', timeStyle: 'short' }) + ' (Las Vegas time)';
+    // The document's marked blanks get what was filled in and the drawn signature; anything else filled in is listed after it
+    const vals = fillValues(w.fields, w.signedAt);
+    const shown = new Set();
+    const filledHtml = html.replace(/<span class="blank" data-fill="(\w+)">[^<]*<\/span>/g, (m, k) => {
+      if (k === 'signature') return sig ? `<img class="sig-inline" alt="Signature of ${e(w.signerName)}" src="data:image/png;base64,${sig}">` : m;
+      if (!vals[k]) return m;
+      (FILL_PARTS[k] || [k]).forEach((x) => shown.add(x));
+      return `<span class="filled">${e(vals[k])}</span>`;
+    });
     const sections = (doc ? doc.sections : []).map((sec) => {
-      const rows = sec.fields.filter((f) => w.fields[f.key]).map((f) => `<tr><th>${e(f.label)}</th><td>${e(w.fields[f.key])}</td></tr>`).join('');
+      const rows = sec.fields.filter((f) => w.fields[f.key] && !shown.has(f.key)).map((f) => `<tr><th>${e(f.label)}</th><td>${e(w.fields[f.key])}</td></tr>`).join('');
       return rows ? `<h3>${e(sec.title)}</h3><table>${rows}</table>` : '';
     }).join('');
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -382,12 +391,13 @@ module.exports = function ranchRouter({ dataDir }) {
       h2{font:700 18px Arial,sans-serif;margin:34px 0 8px;border-top:2px solid #111;padding-top:14px}h3{font:700 15px Arial,sans-serif;margin:18px 0 6px}
       table{border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #ddd;vertical-align:top}th{width:40%;font-weight:normal;color:#555}
       .doc table td,.doc table th{border:1px solid #ccc}.sig img{max-width:340px;border-bottom:1px solid #111;display:block;margin:6px 0 4px}
+      .filled{font:600 15px Arial,sans-serif;border-bottom:1px solid #111;padding:0 4px}.sig-inline{height:56px;max-width:260px;vertical-align:bottom;border-bottom:1px solid #111}
       @media print{.bar{display:none}h2{page-break-before:auto}.sig{page-break-inside:avoid}}</style></head><body>
-      <div class="bar"><a class="close" href="${forStaff ? '/admin/#/waivers' : '/#/documents'}" onclick="if (history.length > 1) { history.back(); return false; }">&lsaquo; Close</a><button onclick="print()">Print or save as PDF</button><span>Keep a copy for your records.</span></div>
+      <div class="bar" data-own-back><a class="close" href="${forStaff ? '/admin/#/waivers' : '/#/documents'}" onclick="if (history.length > 1) { history.back(); return false; }">&lsaquo; Close</a><button onclick="print()">Print or save as PDF</button><span>Keep a copy for your records.</span></div>
       <div class="box"><strong>${e(w.docTitle)}</strong>, signed electronically by ${e(w.signerName)}${w.minor ? ` (parent or guardian of ${e(w.fields.name)})` : ''} on ${e(when(w.signedAt))}.
         ${w.countersign ? `<br>Countersigned for Winning Ranch by ${e(w.countersign.by)} on ${e(when(w.countersign.at))}.` : forStaff ? '<br>Not countersigned by the ranch yet.' : ''}</div>
-      <div class="doc">${html}</div>
-      <h2>Information provided</h2>${sections || '<p>None.</p>'}
+      <div class="doc">${filledHtml}</div>
+      ${shown.size ? (sections ? `<h2>Also provided</h2>${sections}` : '') : `<h2>Information provided</h2>${sections || '<p>None.</p>'}`}
       <h2>Signature</h2>
       <div class="sig"><table>
         <tr><th>Signed by</th><td>${e(w.signerName)}${w.minor ? `, parent or guardian of ${e(w.fields.name)}` : ''}</td></tr>

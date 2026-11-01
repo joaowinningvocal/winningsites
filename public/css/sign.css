@@ -72,3 +72,5 @@
   background: var(--ink); color: var(--on-ink); padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px; font-weight: 600; }
 .appbar a { color: var(--on-ink); text-decoration: none; }
 .appbar span { font-family: var(--display); }
+/* Blanks in the document show what's typed in the form */
+.reader .filled { font-family: Arial, sans-serif; font-weight: 600; background: rgba(204, 35, 42, .08); border-bottom: 1px solid currentColor; padding: 0 3px; }

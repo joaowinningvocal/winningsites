@@ -10,7 +10,7 @@
   if (inApp) {
     // Opened from the Winning Ranch app: no website header/footer, a back link to Documents
     document.body.classList.add('in-app');
-    document.body.insertAdjacentHTML('afterbegin', '<div class="appbar"><a href="/#/documents">&lsaquo; Documents</a><span>Winning Ranch</span></div>');
+    document.body.insertAdjacentHTML('afterbegin', '<div class="appbar" data-own-back><a href="/#/documents">&lsaquo; Documents</a><span>Winning Ranch</span></div>');
   }
   let doc = null;
   let pad = null;
@@ -135,6 +135,7 @@
       const res = await fetch(`docs/${doc.id}.html`);
       reader.innerHTML = res.ok ? await res.text() : '<p>The document didn’t load. Open the PDF below to read it.</p>';
     } catch { reader.innerHTML = '<p>The document didn’t load. Open the PDF below to read it.</p>'; }
+    fillReader();
     const prog = $('#read-progress');
     const update = () => {
       const max = reader.scrollHeight - reader.clientHeight;
@@ -155,7 +156,21 @@
     }
     return out;
   }
-  const signerName = () => ($('[name="__minor"]') && $('[name="__minor"]').checked ? $('#f-guardian').value : ($('#f-name') || {}).value || '').trim();
+  // The document's marked blanks show what's typed in the form (same values as fillValues in lib/docs.js);
+  // the signature blank stays a line until the signed copy
+  function fillReader() {
+    const v = values();
+    const cityStateZip = [v.city, [v.state, v.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const all = { ...v, cityStateZip, fullAddress: [v.street, cityStateZip].filter(Boolean).join(', '),
+      date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) };
+    root.querySelectorAll('#reader [data-fill]').forEach((el) => {
+      if (el.dataset.line === undefined) el.dataset.line = el.textContent;
+      const val = el.dataset.fill === 'signature' ? '' : String(all[el.dataset.fill] || '').trim();
+      el.textContent = val || el.dataset.line;
+      el.classList.toggle('filled', !!val);
+    });
+  }
+  const signerName = () =>($('[name="__minor"]') && $('[name="__minor"]').checked ? $('#f-guardian').value : ($('#f-name') || {}).value || '').trim();
 
   function syncVisibility() {
     const v = values();
@@ -164,6 +179,7 @@
     if (minor) $('#guardian').hidden = !minor.checked;
     const who = signerName();
     $('#typed-hint').textContent = who ? `Type it exactly as: ${who}` : '';
+    fillReader();
   }
 
   function saveDraft() {
