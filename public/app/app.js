@@ -108,7 +108,7 @@
     try {
       S.home = await api('GET', '/app/home');
       const fresh = S.home.horses.reduce((t, x) => t + x.fresh, 0);
-      const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0);
+      const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0) + (S.home.shiftRequests || 0) + (S.home.shiftAnswers || []).length;
       const n = S.home.unread + fresh + extra + (S.home.toSign || 0);
       $('#bell-badge').hidden = !n; $('#bell-badge').textContent = n > 99 ? '99+' : n;
       $('#nav-dot').hidden = !S.home.unread;
@@ -200,6 +200,7 @@
       if (h.shift !== null && h.shift !== undefined) body += shiftCard(h.shift);
       body += `<p class="section-label">Today</p>`;
       if (h.shift) body += feature({ href: '#/checklist', icon: 'check', title: 'Shift checklist', sub: `${h.shift.done.done} of ${h.shift.done.total} done` });
+      body += feature({ href: '/admin/#/schedule', icon: 'cal', title: 'Schedule', sub: h.shiftRequests ? `${h.shiftRequests} shift request${h.shiftRequests === 1 ? '' : 's'} to approve` : h.nextShifts && h.nextShifts.length ? `Next: ${h.nextShifts.join(', ')}` : 'AM and PM shifts this week', badge: h.shiftRequests || '' });
       body += feature({ act: 'post', icon: 'camera', title: 'Post an update', sub: 'Photos and videos for the owners' });
       body += feature({ href: '#/messages', icon: 'chat', title: 'Messages', sub: 'Team chat and owner chats', badge: h.unread || '' });
       body += feature({ href: '#/documents', icon: 'pen', title: 'My documents', sub: h.toSign ? `${h.toSign} to sign` : 'Employee packet and W-9', badge: h.toSign || '' });
@@ -585,6 +586,8 @@
     if (h.unread) items.push(`<a href="#/messages"><b>${h.unread} unread message${h.unread === 1 ? '' : 's'}</b><small>Open Messages</small></a>`);
     h.horses.filter((x) => x.fresh).forEach((x) => items.push(`<a href="#/horse/${x.id}"><b>${x.fresh} new update${x.fresh === 1 ? '' : 's'} on ${esc(x.name)}</b><small>${esc(x.latest ? x.latest.caption || 'New photo' : '')}</small></a>`));
     if (h.pendingBookings) items.push(`<a href="/admin/#/bookings"><b>${h.pendingBookings} booking request${h.pendingBookings === 1 ? '' : 's'}</b><small>Waiting for you</small></a>`);
+    if (h.shiftRequests) items.push(`<a href="/admin/#/schedule"><b>${h.shiftRequests} shift request${h.shiftRequests === 1 ? '' : 's'} to approve</b><small>Open the schedule</small></a>`);
+    (h.shiftAnswers || []).forEach((q) => items.push(`<a href="/admin/#/schedule"><b>${q.status === 'approved' ? 'Approved' : 'Declined'}: ${esc(q.kind === 'swap' ? `your swap for ${q.withName}’s ${q.toLabel}` : `taking ${q.withName}’s ${q.toLabel}`)}</b><small>${esc(q.decidedBy ? `By ${q.decidedBy}` : 'Open the schedule')}</small></a>`));
     if (h.waiversToCountersign) items.push(`<a href="/admin/#/waivers"><b>${h.waiversToCountersign} waiver${h.waiversToCountersign === 1 ? '' : 's'} to countersign</b><small>Open Waivers</small></a>`);
     n.innerHTML = `<h3>Notifications</h3>${items.join('') || '<p class="muted" style="padding:8px 10px">You&rsquo;re all caught up.</p>'}`;
     n.hidden = false;

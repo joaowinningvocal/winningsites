@@ -86,6 +86,7 @@ O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. 
 | Post update | Postar fotos e vídeos de um cavalo |
 | Bookings | Pedidos de reserva do site: confirmar, recusar, concluir, cancelar |
 | Stall board | Quem está em cada baia por dia, as próximas duas semanas, adicionar cavalos (mensal, por noite ou nosso), "Find stalls" e o assistente |
+| Schedule | Escala da semana: turno AM e PM de cada dia, arrastar e soltar, semana padrão, pedidos de troca (todos da equipe veem) |
 | Hours | Turnos do dia, correções, semana de pagamento, CSV, configurações do ponto |
 | Horses | Os cavalos do Stall board: dono (com ou sem conta no app) e baia |
 | People | Donos e equipe, posição (ranch hand, ranch manager, office) e links de acesso |
@@ -93,7 +94,16 @@ O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. 
 | Stalls | Fotos, tamanho, status e descrição de cada baia |
 | Waivers | Documentos assinados, cópia para imprimir, countersign, apagar e restaurar, links para assinar |
 
-Ranch hands só veem **My shift** e **Post update**.
+Ranch hands só veem **My shift**, **Post update** e **Schedule**.
+
+## Escala (Schedule)
+
+Em `/admin/#/schedule` (e no atalho **Schedule** da Home do app).
+
+- **Semana padrão (Usual week):** manager e office montam uma vez quem trabalha no AM e no PM de cada dia da semana. Toda semana nova começa dela.
+- **Esta semana (This week):** arrastar muda só aquele dia (segure o nome no celular e arraste). Solte num turno para mover, num nome para trocar os dois, ou arraste da lista **Team** para adicionar. O × tira a pessoa do turno. **Set this week back to the usual week** desfaz as mudanças da semana.
+- **Trocas:** o ranch hand toca no turno de um colega e pede para **pegar** o turno ou **trocar** por um dos seus. O pedido aparece no topo da escala e no sino do manager, que aprova ou recusa. Só muda a escala depois de aprovado.
+- Horários do AM e do PM em **Shift times** (padrão 6:00 às 12:00 e 12:00 às 18:00). A escala não trava o ponto: quem não está escalado ainda consegue bater o ponto.
 
 ## Ponto e relatórios
 

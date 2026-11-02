@@ -508,7 +508,8 @@ module.exports = function ranchRouter({ dataDir }) {
   staff.use(auth.requireStaff);
 
   // Ranch hands only get their shift and posting updates; everything else is for managers and office
-  const HAND_ALLOWED = [/^GET \/horses$/, /^POST \/updates$/, /^(GET|POST|PATCH) \/shift(\/[\w-]+)?$/];
+  const HAND_ALLOWED = [/^GET \/horses$/, /^POST \/updates$/, /^(GET|POST|PATCH) \/shift(\/[\w-]+)?$/,
+    /^GET \/schedule$/, /^POST \/schedule\/requests(\/[\w-]+\/cancel)?$/]; // see the schedule, ask to take or swap a shift
   // The lesson program only sends waivers to its clients
   const LESSONS_ALLOWED = [/^(GET|POST) \/client-waivers$/];
   staff.use((req, res, next) => {
@@ -978,8 +979,11 @@ module.exports = function ranchRouter({ dataDir }) {
   // ---- time clock (shift, hours, reports)
   require('./shifts')({ staff, db, store, newId, now, str });
 
+  // ---- weekly AM/PM schedule, take and swap requests
+  const scheduleApi = require('./schedule')({ staff, db, store, newId, now, str });
+
   // ---- app: messages and the home screen
-  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse: boardApi.stallOfHorse, docTitle: (id) => (docById(id) || {}).title || id });
+  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse: boardApi.stallOfHorse, docTitle: (id) => (docById(id) || {}).title || id, scheduleSummary: scheduleApi.summary });
 
   // ---- documents: what each person signed, what the ranch asked them to sign
   const mineWaivers = (u) => db.waivers.filter((w) => !w.deletedAt

@@ -12,7 +12,7 @@ const fs = require('fs');
 const multer = require('multer');
 const H = require('../lib/hours');
 
-module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse, docTitle }) {
+module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse, docTitle, scheduleSummary }) {
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
@@ -268,6 +268,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
         out.waiversToCountersign = (db.waivers || []).filter((w) => !w.deletedAt && !w.countersign).length;
         out.onClock = (db.shifts || []).filter((s) => !s.deletedAt && !s.out).map((s) => nameOf(s.userId));
       }
+      if (pos !== 'lessons' && scheduleSummary) Object.assign(out, scheduleSummary(u)); // next shifts, take/swap answers and requests
     }
     res.json(out);
   });

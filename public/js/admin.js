@@ -38,7 +38,7 @@
     if (!name || !allowed.includes(name)) name = pos === 'office' ? 'post' : 'shift';
     tabs.querySelectorAll('a').forEach((a) => { if (a.getAttribute('href') === '#/' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     if (pos !== 'hand') refreshPending();
-    const views = { shift: () => window.WRShift.view(root), hours: () => window.WRHours.view(root), post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), board: () => window.WRBoard.view(root), stalls: stallsView, waivers: waiversView };
+    const views = { shift: () => window.WRShift.view(root), hours: () => window.WRHours.view(root), schedule: () => window.WRSchedule.view(root), post: postView, bookings: bookingsView, horses: horsesView, people: peopleView, pricing: () => window.WRPricing.view(root), board: () => window.WRBoard.view(root), stalls: stallsView, waivers: waiversView };
     try { await (views[name] || postView)(); } catch (ex) {
       if (ex.status === 401) { user = null; return route(); }
       root.innerHTML = `<div class="wrap"><div class="empty-box"><h2>That didn’t load</h2><p>${esc(ex.message)}</p></div></div>`;
