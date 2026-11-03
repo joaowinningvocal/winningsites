@@ -118,6 +118,12 @@ module.exports = function ranchRouter({ dataDir }) {
       }
       Object.assign(db.settings, { monthlyMin: 850, monthlyMax: 1000 });
     },
+    // Barn stall 2 went back to $0 a night after Randy fixed it (Nov 2026): the barn rate again.
+    // Kept out of the price history, so "Undo last change" can't take it back to $0.
+    'barn-stall-2-rate': () => {
+      const s = stallById('M2');
+      if (s && s.nightly === 0) s.nightly = 150;
+    },
   };
   let migrated = false;
   for (const [name, run] of Object.entries(migrations)) {
@@ -644,11 +650,20 @@ module.exports = function ranchRouter({ dataDir }) {
     res.json({ changed, skipped: targets.length - changed.length, entry });
   });
 
-  // Undo is a stack: it always reverts the newest change that isn't undone yet
+  // Undo reverts the change it's asked for (the toast's own change), else the newest one not undone yet.
+  // A stall whose price was changed again since keeps its newer price, so an old undo never brings back a fixed price.
   staff.post('/prices/undo', async (req, res) => {
-    const entry = [...db.priceLog].reverse().find((e) => !e.undoneAt);
-    if (!entry) return res.status(400).json({ error: 'Nothing to undo.' });
-    for (const [id, val] of Object.entries(entry.before)) { const t = stallById(id); if (t) t[entry.field] = val; }
+    const wanted = req.body && typeof req.body.id === 'string' ? req.body.id : null;
+    const entry = wanted ? db.priceLog.find((e) => e.id === wanted && !e.undoneAt) : [...db.priceLog].reverse().find((e) => !e.undoneAt);
+    if (!entry) return res.status(400).json({ error: wanted ? 'That change was already undone.' : 'Nothing to undo.' });
+    const kept = [];
+    for (const [id, val] of Object.entries(entry.before)) {
+      const t = stallById(id);
+      if (!t) continue;
+      if (t[entry.field] !== entry.after[id]) { kept.push(t.name); continue; }
+      t[entry.field] = val;
+    }
+    entry.kept = kept;
     entry.undoneAt = now();
     entry.undoneBy = req.user.name;
     await store.save();

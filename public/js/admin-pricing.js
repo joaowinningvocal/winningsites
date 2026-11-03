@@ -282,16 +282,17 @@ window.WRPricing = (() => {
       paint({ keepEditor: false });
       if (!res.entry) { toast(op === 'add' || op === 'percent' ? 'Nothing changed. Those stalls don’t have a price yet.' : 'Nothing changed.'); return; }
       const skipped = res.skipped ? ` Skipped ${plural(res.skipped, 'stall', 'stalls')} without a price.` : '';
-      toast(`${describe(res.entry, false).replace(/^./, (c) => c.toUpperCase())}.${skipped}`, { action: 'Undo', onAction: undo });
+      toast(`${describe(res.entry, false).replace(/^./, (c) => c.toUpperCase())}.${skipped}`, { action: 'Undo', onAction: () => undo(res.entry.id) });
     } catch (ex) { toast(ex.message); }
   }
 
-  async function undo() {
+  // id: the change a toast is about. Without it, the newest change not undone yet.
+  async function undo(id) {
     try {
-      const { entry } = await api('POST', '/admin/prices/undo');
+      const { entry } = await api('POST', '/admin/prices/undo', id ? { id } : {});
       await load();
       paint();
-      toast(`Undone: ${describe(entry, false)}`);
+      toast(`Undone: ${describe(entry, false)}${entry.kept && entry.kept.length ? `. Kept the newer price on ${entry.kept.join(', ')}` : ''}`);
     } catch (ex) { toast(ex.message); }
   }
 
