@@ -468,6 +468,19 @@
     }
   });
 
+  // ------------------------------------------------------------ zoom (phones open on the whole ranch)
+  const zoomBtn = $('#map-zoom');
+  if (zoomBtn) zoomBtn.addEventListener('click', () => {
+    const map = $('#ranch-map');
+    const on = map.classList.toggle('is-zoomed');
+    zoomBtn.textContent = on ? 'Zoom out' : 'Zoom in';
+    zoomBtn.setAttribute('aria-pressed', String(on));
+    $('#map-hint').textContent = on ? 'Drag sideways to see the whole ranch. Tap a stall for photos and prices.' : 'Tap a stall for photos and prices. Zoom in to see the stalls up close.';
+    els.peek.classList.remove('is-on');
+    const scroll = $('#map-scroll');
+    scroll.scrollLeft = on ? (scroll.scrollWidth - scroll.clientWidth) / 2 : 0;
+  });
+
   // ------------------------------------------------------------ start
   const stallParam = readUrl();
   if (els.from.value && els.to.value) state.range = { from: els.from.value, to: els.to.value };

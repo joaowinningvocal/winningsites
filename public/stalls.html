@@ -58,7 +58,8 @@
 
 <section class="mapsec" aria-label="Ranch map">
   <div class="wrap">
-    <div class="ranch-map">
+    <div class="ranch-map" id="ranch-map">
+      <button type="button" class="ranch-map__zoom" id="map-zoom" aria-pressed="false">Zoom in</button>
       <div class="ranch-map__scroll" id="map-scroll">
         <div class="ranch-map__stage" id="map-stage">
           <img src="img/ranch-map.jpg" alt="Illustrated map of Winning Ranch. Main barn with 20 stalls, 8 outdoor stalls, main arena, second arena, two round pens, tack rooms, hay storage, trailer parking and an outdoor bathroom." width="1536" height="1024">
@@ -66,7 +67,7 @@
           <div class="peek" id="peek" aria-hidden="true"></div>
         </div>
       </div>
-      <p class="ranch-map__hint">Drag sideways to see the whole ranch. Tap a stall for photos and prices.</p>
+      <p class="ranch-map__hint" id="map-hint">Tap a stall for photos and prices. Zoom in to see the stalls up close.</p>
     </div>
   </div>
 </section>
