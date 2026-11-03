@@ -100,6 +100,7 @@
     if (h.startsWith('#/checklist')) return checklistView();
     if (h.startsWith('#/documents')) return documentsView();
     if (h.startsWith('#/sent')) return sentView();
+    if (h.startsWith('#/reports')) return reportsView();
     return homeView();
   }
   window.addEventListener('hashchange', () => S.me && route());
@@ -108,7 +109,7 @@
     try {
       S.home = await api('GET', '/app/home');
       const fresh = S.home.horses.reduce((t, x) => t + x.fresh, 0);
-      const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0) + (S.home.shiftRequests || 0) + (S.home.shiftAnswers || []).length;
+      const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0) + (S.home.shiftRequests || 0) + (S.home.shiftAnswers || []).length + (S.home.reports || 0);
       const n = S.home.unread + fresh + extra + (S.home.toSign || 0);
       $('#bell-badge').hidden = !n; $('#bell-badge').textContent = n > 99 ? '99+' : n;
       $('#nav-dot').hidden = !S.home.unread;
@@ -352,7 +353,8 @@
             ${m.docs.map((d) => `<div class="sign-card__row"><span>${esc(d.title)}</span>${d.status === 'signed' ? '<em class="ok">Signed</em>' : d.status === 'cancelled' ? '<em>Cancelled</em>' : isStaff() ? '<em>Waiting</em>' : `<a class="sign-go" href="/sign.html?doc=${esc(d.id)}&app=1">Sign</a>`}</div>`).join('')}
             ${m.text.includes('. ') ? `<p class="muted">${esc(m.text.split('. ').slice(1).join('. '))}</p>` : ''}</div><time>${esc(time(m.at))}</time></div>`;
         }
-        return `<div class="msg ${m.mine ? 'mine' : ''}">${who}<div class="msg-bubble">${m.media.map((x) => x.type === 'video' ? `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(x.url)}" alt="Photo" data-full="${esc(x.url)}">`).join('')}${esc(m.text)}</div><time>${esc(time(m.at))}</time></div>`;
+        const more = !m.mine && m.byId ? ` <button class="msg-more" type="button" data-more="${esc(m.id)}" data-by="${esc(m.byId)}" data-name="${esc(m.by)}" aria-label="Report or block ${esc(m.by)}">&middot;&middot;&middot;</button>` : '';
+        return `<div class="msg ${m.mine ? 'mine' : ''}" data-mid="${esc(m.id)}">${who}<div class="msg-bubble">${m.media.map((x) => x.type === 'video' ? `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(x.url)}" alt="Photo" data-full="${esc(x.url)}">`).join('')}${esc(m.text)}</div><time>${esc(time(m.at))}${more}</time></div>`;
       }).join(''));
       window.scrollTo(0, document.body.scrollHeight);
     };
@@ -367,6 +369,7 @@
       } catch (_) {}
     };
     S.threadPoll = setInterval(() => { if (!document.hidden) pull(false); }, 4000);
+    box.onclick = (e) => { const b = e.target.closest('[data-more]'); if (b) messageSheet(id, b.dataset.more, b.dataset.by, b.dataset.name); };
     const gi = $('#group-info');
     if (gi) gi.onclick = () => groupSheet(chat);
     const rq = $('#req-sign');
@@ -404,6 +407,77 @@
         ta.value = ''; ta.style.height = 'auto'; S.files = []; $('#file').value = ''; $('#pending').hidden = true;
       } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
     };
+  }
+
+  // ------------------------------------------------------------------ report a message, block a person
+  function messageSheet(chatId, mid, userId, name) {
+    openSheet(`<h2>Message from ${esc(name)}</h2>
+      <div style="display:grid;gap:10px;margin-top:14px"><button class="btn" type="button" data-x="report">Report this message</button>
+      <button class="btn" type="button" data-x="block">Block ${esc(name)}</button></div>`, (sheet) => {
+      sheet.querySelector('[data-x="report"]').onclick = () => {
+        $('.sheet__body', sheet).innerHTML = `<h2>Report this message</h2><p class="muted">It disappears for you now. The ranch reviews reports within 24 hours and removes anything that breaks the rules.</p>
+          <form id="rp" novalidate style="margin-top:10px">${['Spam', 'Harassment or hate', 'Inappropriate photo or video', 'Something else'].map((r, i) => `<label class="pick"><input type="radio" name="reason" value="${r}"${i ? '' : ' checked'}> ${r}</label>`).join('')}
+          <div class="field" style="margin-top:10px"><label for="rp-d">More details (optional)</label><input id="rp-d" maxlength="500"></div>
+          <button class="btn btn--red btn--big" type="submit">Send report</button><p class="err" id="rp-err"></p></form>`;
+        $('#rp', sheet).onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            await api('POST', `/chats/${chatId}/messages/${mid}/report`, { reason: sheet.querySelector('input[name=reason]:checked').value, details: $('#rp-d', sheet).value });
+            sheet.close();
+            const el = document.querySelector(`[data-mid="${CSS.escape(mid)}"]`); if (el) el.remove();
+            toast('Reported. Thanks for letting us know.');
+          } catch (ex) { $('#rp-err', sheet).textContent = ex.message; }
+        };
+      };
+      sheet.querySelector('[data-x="block"]').onclick = () => {
+        $('.sheet__body', sheet).innerHTML = `<h2>Block ${esc(name)}?</h2><p class="muted">You won&rsquo;t see their messages in any chat. They aren&rsquo;t told. You can unblock them from the menu at the top.</p>
+          <button class="btn btn--red btn--big" type="button" id="bk" style="margin-top:12px">Block</button><p class="err" id="bk-err"></p>`;
+        $('#bk', sheet).onclick = async () => {
+          try { await api('POST', '/blocks', { userId }); sheet.close(); toast(`${name} is blocked`); route(); } catch (ex) { $('#bk-err', sheet).textContent = ex.message; }
+        };
+      };
+    });
+  }
+
+  async function blockedSheet() {
+    const { blocked } = await api('GET', '/blocks');
+    openSheet(`<h2>Blocked people</h2>${blocked.length ? blocked.map((b) => `<div class="pick" style="justify-content:space-between"><span>${esc(b.name)}</span><button class="req-btn" type="button" data-unblock="${esc(b.id)}">Unblock</button></div>`).join('')
+      : '<p class="muted">You haven&rsquo;t blocked anyone. To block someone, tap &middot;&middot;&middot; next to one of their messages.</p>'}`, (sheet) => {
+      sheet.onclick = async (e) => {
+        if (e.target === sheet) return sheet.close();
+        const b = e.target.closest('[data-unblock]');
+        if (!b) return;
+        try { await api('DELETE', `/blocks/${b.dataset.unblock}`); sheet.close(); toast('Unblocked'); route(); } catch (ex) { toast(ex.message); }
+      };
+    });
+  }
+
+  function deleteAccountSheet() {
+    openSheet(`<h2>Delete your account</h2>
+      <p class="muted">This closes your account for good. Your name, email, phone and password are erased and you&rsquo;re signed out. Documents you signed stay with the ranch, as the law requires. To use the app again, the ranch would invite you as a new account.</p>
+      <form id="da" novalidate style="margin-top:10px"><div class="field"><label for="da-p">Your password</label><input id="da-p" type="password" autocomplete="current-password"></div>
+        <button class="btn btn--red btn--big" type="submit">Delete my account</button><p class="err" id="da-err"></p></form>`, (sheet) => {
+      $('#da', sheet).onsubmit = async (e) => {
+        e.preventDefault();
+        try { await api('POST', '/auth/delete-account', { password: $('#da-p', sheet).value }); sheet.close(); location.hash = ''; location.reload(); } catch (ex) { $('#da-err', sheet).textContent = ex.message; }
+      };
+    });
+  }
+
+  // Barn Management: reported messages
+  async function reportsView() {
+    view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
+    const { reports } = await api('GET', '/reports');
+    view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a><h1 style="font-size:1.8rem">Reported messages</h1>
+      <p class="muted">Remove anything that breaks the rules within 24 hours. A removed message disappears for everyone.</p>
+      ${reports.map((r) => `<div class="shift-card" style="margin-top:14px"><p class="state" style="font-size:1rem">${esc(r.reason)} &middot; ${esc(r.chat)}</p>
+        <p class="muted" style="margin:4px 0 8px">${esc(r.by)} reported a message from ${esc(r.about)}, ${esc(ago(r.at))}${r.details ? `: &ldquo;${esc(r.details)}&rdquo;` : ''}</p>
+        <div class="msg"><div class="msg-bubble">${r.media.map((x) => x.type === 'video' ? `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(x.url)}" alt="Photo" data-full="${esc(x.url)}">`).join('')}${esc(r.text)}</div></div>
+        <div class="btns" style="margin-top:12px"><button class="btn btn--red" type="button" data-resolve="${esc(r.id)}" data-remove="1">Remove message</button><button class="btn" type="button" data-resolve="${esc(r.id)}">Keep it</button></div></div>`).join('')
+        || '<div class="empty">No reported messages.</div>'}</div>`;
+    view.querySelectorAll('[data-resolve]').forEach((b) => { b.onclick = async () => {
+      try { await api('POST', `/reports/${b.dataset.resolve}/resolve`, { remove: !!b.dataset.remove }); toast(b.dataset.remove ? 'Message removed' : 'Kept'); reportsView(); refreshCounts(); } catch (ex) { toast(ex.message); }
+    }; });
   }
 
   // ------------------------------------------------------------------ groups and direct messages
@@ -575,6 +649,8 @@
     if (b.dataset.menu === 'theme') { const t = document.documentElement.dataset.theme === 'dark' ? 'ranch' : 'dark'; document.documentElement.dataset.theme = t; localStorage.setItem('wr-app-theme', t); }
     if (b.dataset.menu === 'logout') { await api('POST', '/auth/logout').catch(() => {}); location.hash = ''; location.reload(); }
     $('#menu').hidden = true;
+    if (b.dataset.menu === 'blocked') blockedSheet().catch((ex) => toast(ex.message));
+    if (b.dataset.menu === 'delete') deleteAccountSheet();
   };
   $('#bell').onclick = async (e) => {
     e.stopPropagation(); $('#menu').hidden = true;
@@ -586,6 +662,7 @@
     if (h.unread) items.push(`<a href="#/messages"><b>${h.unread} unread message${h.unread === 1 ? '' : 's'}</b><small>Open Messages</small></a>`);
     h.horses.filter((x) => x.fresh).forEach((x) => items.push(`<a href="#/horse/${x.id}"><b>${x.fresh} new update${x.fresh === 1 ? '' : 's'} on ${esc(x.name)}</b><small>${esc(x.latest ? x.latest.caption || 'New photo' : '')}</small></a>`));
     if (h.pendingBookings) items.push(`<a href="/admin/#/bookings"><b>${h.pendingBookings} booking request${h.pendingBookings === 1 ? '' : 's'}</b><small>Waiting for you</small></a>`);
+    if (h.reports) items.push(`<a href="#/reports"><b>${h.reports} reported message${h.reports === 1 ? '' : 's'}</b><small>Review within 24 hours</small></a>`);
     if (h.shiftRequests) items.push(`<a href="/admin/#/schedule"><b>${h.shiftRequests} shift request${h.shiftRequests === 1 ? '' : 's'} to approve</b><small>Open the schedule</small></a>`);
     (h.shiftAnswers || []).forEach((q) => items.push(`<a href="/admin/#/schedule"><b>${q.status === 'approved' ? 'Approved' : 'Declined'}: ${esc(q.kind === 'swap' ? `your swap for ${q.withName}’s ${q.toLabel}` : `taking ${q.withName}’s ${q.toLabel}`)}</b><small>${esc(q.decidedBy ? `By ${q.decidedBy}` : 'Open the schedule')}</small></a>`));
     if (h.waiversToCountersign) items.push(`<a href="/admin/#/waivers"><b>${h.waiversToCountersign} waiver${h.waiversToCountersign === 1 ? '' : 's'} to countersign</b><small>Open Waivers</small></a>`);

@@ -453,6 +453,22 @@ module.exports = function ranchRouter({ dataDir }) {
 
   r.post('/auth/logout', (req, res) => { auth.endSession(req, res); res.json({ ok: true }); });
 
+  // Delete my account, from the app (App Store rule for apps with accounts). The account is closed and its
+  // name, email, phone and password are erased. Signed agreements stay, as the privacy policy says.
+  r.post('/auth/delete-account', loginLimit, auth.requireUser, async (req, res) => {
+    const u = req.user;
+    if (u.master) return res.status(400).json({ error: 'The master account can’t be deleted in the app. Change ADMIN_EMAIL on Railway instead.' });
+    if (u.password && !auth.verifyPassword(req.body && req.body.password, u.password)) return res.status(400).json({ error: 'That password isn’t right.' });
+    auth.endSession(req, res);
+    Object.assign(u, { name: 'Deleted account', email: `deleted-${u.id}@deleted.invalid`, phone: '', password: null, active: false, deletedAt: now() });
+    db.sessions = db.sessions.filter((s) => s.userId !== u.id);
+    db.invites = db.invites.filter((i) => i.userId !== u.id);
+    for (const c of db.chats) if (Array.isArray(c.members)) c.members = c.members.filter((id) => id !== u.id);
+    await store.save();
+    if (u.demo) seedReviewAccounts(store, uploads); // a store review login comes back fresh for the next review
+    res.json({ ok: true });
+  });
+
   r.get('/auth/invite/:token', (req, res) => {
     const found = auth.findInvite(req.params.token);
     if (!found) return res.status(404).json({ error: 'This link expired or was already used. Ask the ranch for a new one.' });

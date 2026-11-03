@@ -16,6 +16,8 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
+  if (!db.reports) db.reports = []; // reported messages, for Barn Management to review
+  if (!db.blocks) db.blocks = {}; // { userId: [ids they blocked] }: their messages stay hidden for that person
 
   const isStaff = (u) => u && u.role === 'staff';
   // The team in chats = staff except the lesson program (they only send waivers)
@@ -82,8 +84,16 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     return u.role === 'owner' ? [...channels, ownerChat(u.id), ...mine] : channels;
   }
 
+  // What a person sees in a chat: not removed by the ranch, not from someone they blocked, not a message they reported
+  const blockedBy = (u) => db.blocks[u.id] || [];
+  const reportedBy = (u) => new Set(db.reports.filter((x) => x.byUserId === u.id).map((x) => x.messageId));
+  const shownTo = (u) => {
+    const blocked = blockedBy(u), reported = reportedBy(u);
+    return (m) => !m.removedAt && !(m.userId && blocked.includes(m.userId)) && !reported.has(m.id);
+  };
+
   function chatOut(u, c) {
-    const msgs = db.messages.filter((m) => m.chatId === c.id);
+    const msgs = db.messages.filter((m) => m.chatId === c.id).filter(shownTo(u));
     const last = msgs[msgs.length - 1];
     const seen = lastRead(u, c.id);
     return {
@@ -98,7 +108,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   }
 
   const msgOut = (u, m) => ({
-    id: m.id, text: m.text, at: m.at, mine: m.userId === u.id, by: nameOf(m.userId),
+    id: m.id, text: m.text, at: m.at, mine: m.userId === u.id, by: nameOf(m.userId), byId: m.userId || undefined,
     staff: isStaff(db.users.find((x) => x.id === m.userId)),
     media: m.media.map((x) => ({ type: x.type, url: `/api/ranch/chat-media/${x.file}` })),
     ...(m.kind === 'system' ? { kind: 'system' } : {}),
@@ -197,7 +207,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const c = db.chats.find((x) => x.id === req.params.id);
     if (!canSee(req.user, c)) return res.status(404).json({ error: 'Chat not found.' });
     const after = typeof req.query.after === 'string' ? req.query.after : '';
-    const msgs = db.messages.filter((m) => m.chatId === c.id && m.at > after).slice(-200);
+    const msgs = db.messages.filter((m) => m.chatId === c.id && m.at > after).filter(shownTo(req.user)).slice(-200);
     res.json({ chat: chatOut(req.user, c), messages: msgs.map((m) => msgOut(req.user, m)) });
   });
 
@@ -212,6 +222,61 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     (db.reads[req.user.id] = db.reads[req.user.id] || {})[c.id] = m.at;
     await store.save();
     res.status(201).json({ message: msgOut(req.user, m) });
+  });
+
+  // ---------------------------------------------------------------- report a message, block a person
+  // Reporting hides the message for the reporter right away; Barn Management sees it in the app and can remove it.
+  const REPORT_REASONS = ['Spam', 'Harassment or hate', 'Inappropriate photo or video', 'Something else'];
+  r.post('/chats/:id/messages/:mid/report', auth.requireUser, async (req, res) => {
+    const c = db.chats.find((x) => x.id === req.params.id);
+    const m = canSee(req.user, c) && db.messages.find((x) => x.id === req.params.mid && x.chatId === c.id && !x.removedAt);
+    if (!m || m.kind === 'system') return res.status(404).json({ error: 'Message not found.' });
+    if (m.userId === req.user.id) return res.status(400).json({ error: 'That’s your own message.' });
+    const b = req.body || {};
+    const reason = REPORT_REASONS.includes(b.reason) ? b.reason : 'Something else';
+    if (!db.reports.some((x) => x.messageId === m.id && x.byUserId === req.user.id)) {
+      db.reports.push({ id: newId(), messageId: m.id, chatId: c.id, byUserId: req.user.id, aboutUserId: m.userId, reason, details: str(b.details, 500), at: now(), status: 'open' });
+      await store.save();
+    }
+    res.status(201).json({ ok: true });
+  });
+
+  r.get('/blocks', auth.requireUser, (req, res) => res.json({ blocked: blockedBy(req.user).map((id) => ({ id, name: nameOf(id) })) }));
+  r.post('/blocks', auth.requireUser, async (req, res) => {
+    const id = str(req.body && req.body.userId, 40);
+    if (!id || id === req.user.id || !db.users.some((x) => x.id === id)) return res.status(400).json({ error: 'Pick someone to block.' });
+    db.blocks[req.user.id] = [...new Set([...blockedBy(req.user), id])];
+    await store.save();
+    res.status(201).json({ ok: true });
+  });
+  r.delete('/blocks/:userId', auth.requireUser, async (req, res) => {
+    db.blocks[req.user.id] = blockedBy(req.user).filter((id) => id !== req.params.userId);
+    await store.save();
+    res.json({ ok: true });
+  });
+
+  // Barn Management: open reports, then remove the message for everyone or keep it
+  const openReports = () => db.reports.filter((x) => x.status === 'open');
+  r.get('/reports', auth.requireUser, (req, res) => {
+    if (!isLead(req.user)) return res.status(403).json({ error: 'Only managers see reports.' });
+    res.json({ reports: openReports().map((x) => {
+      const m = db.messages.find((y) => y.id === x.messageId) || {};
+      const c = db.chats.find((y) => y.id === x.chatId);
+      return { id: x.id, reason: x.reason, details: x.details, at: x.at, by: nameOf(x.byUserId), about: nameOf(x.aboutUserId), chat: c ? titleFor(req.user, c) : '', chatId: x.chatId,
+        text: m.text || '', media: (m.media || []).map((y) => ({ type: y.type, url: `/api/ranch/chat-media/${y.file}` })), removed: !!m.removedAt };
+    }) });
+  });
+  r.post('/reports/:id/resolve', auth.requireUser, async (req, res) => {
+    if (!isLead(req.user)) return res.status(403).json({ error: 'Only managers resolve reports.' });
+    const x = db.reports.find((y) => y.id === req.params.id && y.status === 'open');
+    if (!x) return res.status(404).json({ error: 'That report was already handled.' });
+    const remove = !!(req.body && req.body.remove);
+    const m = db.messages.find((y) => y.id === x.messageId);
+    if (remove && m && !m.removedAt) Object.assign(m, { removedAt: now(), removedBy: req.user.name });
+    // Every report on the same message is handled together
+    db.reports.filter((y) => y.messageId === x.messageId && y.status === 'open').forEach((y) => Object.assign(y, { status: remove ? 'removed' : 'kept', resolvedAt: now(), resolvedBy: req.user.name }));
+    await store.save();
+    res.json({ ok: true });
   });
 
   r.post('/chats/:id/read', auth.requireUser, async (req, res) => {
@@ -269,6 +334,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
         out.onClock = (db.shifts || []).filter((s) => !s.deletedAt && !s.out).map((s) => nameOf(s.userId));
       }
       if (pos !== 'lessons' && scheduleSummary) Object.assign(out, scheduleSummary(u)); // next shifts, take/swap answers and requests
+      if (isLead(u)) out.reports = openReports().length;
     }
     res.json(out);
   });
