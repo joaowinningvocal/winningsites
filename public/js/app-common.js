@@ -103,7 +103,8 @@ window.WR = (() => {
       e.preventDefault();
       const err = $('#login-error', root);
       err.textContent = '';
-      if (!form.email.value.trim() || !form.password.value) { err.textContent = 'Add your email and password.'; return; }
+      // An empty password is allowed: an account without one gets the link to create it by email
+      if (!form.email.value.trim()) { err.textContent = 'Add your email and password.'; return; }
       const btn = form.querySelector('button');
       btn.disabled = true;
       try {

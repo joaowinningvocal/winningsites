@@ -149,6 +149,17 @@ module.exports = function ranchRouter({ dataDir }) {
     if (process.env.ADMIN_NAME) m.name = process.env.ADMIN_NAME;
     store.save();
   }
+  // João (the developer) also has a master account, set here instead of Railway. It starts without a password:
+  // logging in with the email sends him the link to create one.
+  for (const a of [{ email: 'joao@winningvocal.com', name: 'João' }]) {
+    let m = db.users.find((u) => u.email === a.email);
+    if (!m) {
+      m = { id: crypto.randomBytes(8).toString('hex'), name: a.name, email: a.email, phone: '', role: 'staff', password: null, active: true, createdAt: new Date().toISOString() };
+      db.users.push(m);
+      console.log('[ranch] master account created for', a.email);
+    }
+    if (!m.master || m.role !== 'staff' || m.position !== 'office' || m.active === false) { Object.assign(m, { role: 'staff', position: 'office', active: true, master: true }); store.save(); }
+  }
   if (process.env.SEED_DEMO === '1') seedDemo(store, auth, uploads);
   seedReviewAccounts(store, uploads); // App Store and Google Play review logins
 
@@ -446,6 +457,8 @@ module.exports = function ranchRouter({ dataDir }) {
     const email = str(req.body && req.body.email, 160).toLowerCase();
     const password = req.body && req.body.password;
     const user = db.users.find((u) => u.email === email && u.active !== false);
+    // No password yet: email a link to create one (never set it here, or whoever knows the email could take the account)
+    if (user && !user.password) return passwordSetupLink(req, res, user);
     if (!user || !auth.verifyPassword(password, user.password)) return res.status(401).json({ error: 'That email and password don’t match.' });
     auth.startSession(req, res, user);
     res.json({ user: auth.publicUser(user) });
@@ -546,6 +559,22 @@ module.exports = function ranchRouter({ dataDir }) {
   // ---- people helpers: positions, invite emails
   const POSITIONS = ['hand', 'manager', 'office', 'lessons'];
   const POSITION_LABEL = { hand: 'ranch hand', manager: 'ranch manager', office: 'office', lessons: 'lesson program' };
+  // Someone without a password tried to log in: their invite link goes to their own email, once every 10 minutes.
+  // If email isn't working, the link is printed in the Railway logs (the master accounts can read them there).
+  async function passwordSetupLink(req, res, user) {
+    const sentTo = 'We emailed you a link to create your password. Open it on this phone, then log in.';
+    if (user.setupLinkAt && Date.now() - Date.parse(user.setupLinkAt) < 10 * 60e3) return res.status(409).json({ error: `${sentTo} It can take a minute to arrive.`, needsPassword: true });
+    const url = `${origin(req)}/#/invite/${auth.createInvite(user)}`;
+    const mail = mailer.configured() === 'none' ? { ok: false } : await emailInvite(user, url, null);
+    if (!mail.ok) {
+      console.log(`[ranch] password link for ${user.email} (email didn’t send): ${url}`);
+      return res.status(409).json({ error: 'You don’t have a password yet and we couldn’t email you a link. Ask the ranch office for a login link.', needsPassword: true });
+    }
+    user.setupLinkAt = now();
+    await store.save();
+    res.status(409).json({ error: sentTo, needsPassword: true });
+  }
+
   async function emailInvite(user, url, by) {
     const what = user.role === 'owner' ? 'see your horse’s photos and videos, message the team and sign your documents'
       : user.position === 'lessons' ? 'send waivers to your lesson clients and see when they’re signed'
