@@ -575,6 +575,27 @@ module.exports = function ranchRouter({ dataDir }) {
     res.status(409).json({ error: sentTo, needsPassword: true });
   }
 
+  // Forgot password: the link to set a new one goes to the account's own email, once every 10 minutes.
+  // The answer is the same whether or not the email has an account.
+  r.post('/auth/forgot', loginLimit, async (req, res) => {
+    const email = str(req.body && req.body.email, 160).toLowerCase();
+    const user = db.users.find((u) => u.email === email && u.active !== false);
+    const done = () => res.json({ message: 'If that email has an account, we sent it a link to set a new password. Open it on this phone.' });
+    if (!user || (user.setupLinkAt && Date.now() - Date.parse(user.setupLinkAt) < 10 * 60e3)) return done();
+    const url = `${origin(req)}/#/invite/${auth.createInvite(user)}`;
+    const mail = mailer.configured() === 'none' ? { ok: false } : await mailer.sendEmail({
+      to: user.email,
+      subject: 'Set a new password for the Winning Ranch app',
+      html: mailer.layout({
+        title: `Hi, ${String(user.name).split(' ')[0]}`,
+        body: '<p>Someone asked to set a new password for your Winning Ranch account. If it was you, tap the button. The link works once and expires in 14 days.</p><p>If it wasn’t you, ignore this email. Your password stays the same.</p>',
+        button: { label: 'Set a new password', url },
+      }),
+    }).catch((e) => ({ ok: false, error: e.message }));
+    if (mail.ok) { user.setupLinkAt = now(); await store.save(); } else console.log(`[ranch] password link for ${user.email} (email didn’t send): ${url}`);
+    done();
+  });
+
   async function emailInvite(user, url, by) {
     const what = user.role === 'owner' ? 'see your horse’s photos and videos, message the team and sign your documents'
       : user.position === 'lessons' ? 'send waivers to your lesson clients and see when they’re signed'

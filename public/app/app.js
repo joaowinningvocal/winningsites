@@ -128,6 +128,7 @@
         <div class="field"><label for="li-p">Password</label><input id="li-p" type="password" autocomplete="current-password" required></div>
         <button class="btn btn--red btn--big" type="submit">Log in</button>
         <p class="err" id="li-err" role="alert"></p>
+        <p><button class="textlink" type="button" id="li-forgot" style="background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer">Forgot your password?</button></p>
         <p>No login yet? The ranch sends you a link when your horse checks in.</p>
         <div class="visit"><span>Visiting the ranch?</span>
           <a href="/stalls.html">Book a stall</a><a href="/waivers.html">Sign waivers</a><a href="/home.html">Explore the ranch</a></div>
@@ -136,6 +137,11 @@
       e.preventDefault();
       try { await api('POST', '/auth/login', { email: $('#li-e').value, password: $('#li-p').value }); location.hash = '#/home'; boot(); }
       catch (ex) { $('#li-err').textContent = ex.message; }
+    };
+    $('#li-forgot').onclick = async () => {
+      const email = $('#li-e').value.trim();
+      if (!email) { $('#li-err').textContent = 'Type your email above, then tap Forgot your password.'; return; }
+      try { $('#li-err').textContent = (await api('POST', '/auth/forgot', { email })).message; } catch (ex) { $('#li-err').textContent = ex.message; }
     };
   }
 

@@ -94,6 +94,7 @@ window.WR = (() => {
           <div class="field"><label for="l-pass">Password</label><input id="l-pass" name="password" type="password" autocomplete="current-password" required></div>
           <p class="inline-error" id="login-error" role="alert"></p>
           <button class="btn btn--red" type="submit">Log in</button>
+          <button class="textlink" type="button" id="l-forgot" style="background:none;border:0;padding:0;font:inherit;cursor:pointer;justify-self:start">Forgot your password?</button>
         </form>
         <p class="auth__foot">${foot}</p>
       </div></div>`;
@@ -114,6 +115,11 @@ window.WR = (() => {
         err.textContent = ex.message;
         btn.disabled = false;
       }
+    });
+    $('#l-forgot', root).addEventListener('click', async () => {
+      const err = $('#login-error', root);
+      if (!form.email.value.trim()) { err.textContent = 'Type your email above, then tap Forgot your password.'; return; }
+      try { err.textContent = (await api('POST', '/auth/forgot', { email: form.email.value })).message; } catch (ex) { err.textContent = ex.message; }
     });
   }
 
