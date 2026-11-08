@@ -11,7 +11,7 @@ const { createStore } = require('../lib/store');
 const { createAuth, rateLimit } = require('../lib/auth');
 const { seedStalls, seedDemo, seedReviewAccounts, STALL_SIZE } = require('../lib/ranch-seed');
 const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
-const { DOCS, docById, allFields, fillValues, FILL_PARTS } = require('../lib/docs');
+const { DOCS, docById, allFields, fillValues, FILL_PARTS, INSTRUCTOR_FIELDS, INSTRUCTOR_DEFAULTS } = require('../lib/docs');
 const mailer = require('../lib/mailer');
 
 const IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
@@ -316,7 +316,13 @@ module.exports = function ranchRouter({ dataDir }) {
   const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const sha = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
 
-  r.get('/docs', (_req, res) => res.json({ docs: DOCS }));
+  // The instructor and insurance block of the riding forms, as the office last filled it in
+  const instructorValues = () => {
+    const saved = db.settings.instructor || {};
+    return Object.fromEntries(INSTRUCTOR_FIELDS.map((f) => [f.key, saved[f.key] !== undefined ? saved[f.key] : INSTRUCTOR_DEFAULTS[f.key] || '']));
+  };
+
+  r.get('/docs', (_req, res) => res.json({ docs: DOCS, instructor: instructorValues() }));
 
   r.post('/waivers', rateLimit({ limit: 12, windowMs: 60 * 60e3, message: 'Too many signatures from this device. Call (305) 409-9656.' }), async (req, res) => {
     const b = req.body || {};
@@ -335,8 +341,11 @@ module.exports = function ranchRouter({ dataDir }) {
       else if (f.type === 'choice' && !f.options.includes(v)) errors.push(`Pick an option for “${f.label}”.`);
       else fields[f.key] = v;
     }
-    const forMinor = !!(doc.minor && b.minor === true);
-    const guardianName = forMinor ? str(b.guardianName, 120) : '';
+    // The riding forms carry the instructor and insurance details the office filled in, as they are today
+    if (doc.instructor) for (const [k, v] of Object.entries(instructorValues())) if (v) fields[k] = v;
+    // The minor consent is always signed by the parent or guardian named on it
+    const forMinor = !!(doc.signedByGuardian || (doc.minor && b.minor === true));
+    const guardianName = doc.signedByGuardian ? fields.guardianName || '' : forMinor ? str(b.guardianName, 120) : '';
     if (forMinor && !guardianName) errors.push('Add the parent or guardian’s full name.');
     const signerName = forMinor ? guardianName : fields.name || '';
     const typed = str(b.typedSignature, 120);
@@ -546,7 +555,7 @@ module.exports = function ranchRouter({ dataDir }) {
   const HAND_ALLOWED = [/^GET \/horses$/, /^POST \/updates$/, /^(GET|POST|PATCH) \/shift(\/[\w-]+)?$/,
     /^GET \/schedule$/, /^POST \/schedule\/requests(\/[\w-]+\/cancel)?$/]; // see the schedule, ask to take or swap a shift
   // The lesson program only sends waivers to its clients
-  const LESSONS_ALLOWED = [/^(GET|POST) \/client-waivers$/];
+  const LESSONS_ALLOWED = [/^(GET|POST) \/client-waivers$/, /^(GET|PATCH) \/instructor$/];
   staff.use((req, res, next) => {
     const pos = req.user.position || 'office';
     const allowed = pos === 'hand' ? HAND_ALLOWED : pos === 'lessons' ? LESSONS_ALLOWED : null;
@@ -939,6 +948,24 @@ module.exports = function ranchRouter({ dataDir }) {
     res.status(204).end();
   });
 
+  // ---- the instructor and insurance block of the riding forms (filled in once, copied into each signature)
+  staff.get('/instructor', (_req, res) => res.json({ fields: INSTRUCTOR_FIELDS, values: instructorValues() }));
+
+  staff.patch('/instructor', async (req, res) => {
+    const b = req.body || {};
+    const next = instructorValues();
+    for (const f of INSTRUCTOR_FIELDS) {
+      if (!(f.key in b)) continue;
+      const v = str(b[f.key], 160);
+      if (f.options && v && !f.options.includes(v)) return res.status(400).json({ error: `Pick ${f.options.join(' or ')} for “${f.label}”.` });
+      if (f.key === 'iEmail' && v && !validEmail(v)) return res.status(400).json({ error: 'Check the instructor’s email.' });
+      next[f.key] = v;
+    }
+    db.settings.instructor = next;
+    await store.save();
+    res.json({ values: next });
+  });
+
   // ---- signed waivers
   staff.get('/waivers', (_req, res) => {
     res.json({
@@ -1069,7 +1096,7 @@ module.exports = function ranchRouter({ dataDir }) {
   // ---- documents: what each person signed, what the ranch asked them to sign
   const mineWaivers = (u) => db.waivers.filter((w) => !w.deletedAt
     && (w.userId === u.id || (!w.userId && String(w.fields.email || '').toLowerCase() === u.email)));
-  const docsFor = (u) => (u.role === 'staff' ? ['employee'] : ['boarding', 'lesson', 'liability']);
+  const docsFor = (u) => (u.role === 'staff' ? ['employee'] : ['boarding', 'participant', 'minor']);
 
   r.get('/my/documents', auth.requireUser, (req, res) => {
     const u = req.user;

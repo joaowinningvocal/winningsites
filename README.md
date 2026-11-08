@@ -147,7 +147,11 @@ A arte atual tem a numeração antiga pintada (ímpares à esquerda, pares à di
 
 ## Documentos para assinar
 
-O texto fica em `public/docs/<id>.html`, convertido dos arquivos Word sem mudar a redação, com o PDF original ao lado. Os campos de cada documento ficam em `lib/docs.js`. Cada assinatura guarda a versão exata que foi assinada. O W-9 abre num visualizador com botão Close (`/doc.html?file=w9`) e por enquanto é só para baixar e entregar no escritório: o site não coleta número de Social Security. Vale o advogado revisar o fluxo antes de aposentar o papel.
+O texto fica em `public/docs/<id>.html`, convertido dos arquivos originais sem mudar a redação, com o PDF original ao lado.
+
+**Riding (desde nov/2026):** `participant` (Adult Participant Waiver, 18+) e `minor` (Minor Participant Consent, quem preenche e assina é o pai, mãe ou responsável). O quadro "Instructor & insurance information" é preenchido uma vez no app, em **Instructor and insurance** na Home (lesson program, manager e office), e cada assinatura guarda os dados daquele dia. O Adult lesson packet e o Adult liability waiver antigos saíram do site e do app, mas os links e as cópias assinadas continuam funcionando.
+
+ Os campos de cada documento ficam em `lib/docs.js`. Cada assinatura guarda a versão exata que foi assinada. O W-9 abre num visualizador com botão Close (`/doc.html?file=w9`) e por enquanto é só para baixar e entregar no escritório: o site não coleta número de Social Security. Vale o advogado revisar o fluxo antes de aposentar o papel.
 
 ## Dados
 
@@ -160,11 +164,9 @@ Atualizações de dados de versões anteriores rodam sozinhas uma vez na inicial
 ## O que ainda falta preencher
 
 - **No site, marcados em vermelho tracejado:**
-  - jumps e barrels;
-  - tipo de feno incluso e quantidade;
-  - horário de visita;
-  - o que o full care inclui.
-- **Fotos reais:** troque os arquivos em `public/img/photos/` (`care.jpg`, `aisle.jpg`, `stall.jpg`, `rv.jpg` e, se quiser, `proseries.jpg`).
+  - horário de visita (hoje "7 AM to 7 PM, every day", na Home e no Contact);
+  - três itens do full care: turnout diário, dar o grão e os suplementos do dono, segurar o cavalo para vet e ferrador.
+- **Quadro de instrutor e seguro dos waivers de riding:** telefone, email, seguradora, apólice, período e limites (só o nome da Shelby está preenchido).
 - **Email de contato do site:** os links ainda usam `Jenna@WinningRanch.com`.
 
 ## Limites

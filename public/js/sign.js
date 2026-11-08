@@ -14,6 +14,9 @@
   }
   let doc = null;
   let pad = null;
+  let ranch = {}; // the instructor and insurance details the office filled in (riding forms)
+  // Blanks that are check boxes on paper (same as CHECKBOXES in lib/docs.js)
+  const CHECKBOXES = { iConfirmed: ['Yes', 'No'], photo: ['I consent', 'I do not consent'] };
   const DRAFT = () => 'wr-sign-' + doc.id;
   const PERSON_KEYS = ['name', 'email', 'cell', 'homePhone', 'street', 'city', 'state', 'zip'];
 
@@ -88,8 +91,10 @@
   }
 
   async function render() {
-    const { docs } = await (await fetch(API + '/docs')).json();
+    const data = await (await fetch(API + '/docs')).json();
+    const { docs } = data;
     doc = docs.find((d) => d.id === docId);
+    ranch = (doc && doc.instructor && data.instructor) || {};
     if (!doc) return renderPicker(docs);
     document.title = `${doc.title} | Winning Ranch`;
     $('#doc-title').textContent = doc.title;
@@ -161,8 +166,10 @@
   function fillReader() {
     const v = values();
     const cityStateZip = [v.city, [v.state, v.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-    const all = { ...v, cityStateZip, fullAddress: [v.street, cityStateZip].filter(Boolean).join(', '),
+    const all = { ...ranch, ...v, cityStateZip, fullAddress: [v.street, cityStateZip].filter(Boolean).join(', '),
       date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(all.dob || '')) { const [y, m, d] = all.dob.split('-'); all.dob = `${m}/${d}/${y}`; }
+    for (const [k, opts] of Object.entries(CHECKBOXES)) if (all[k]) all[k] = opts.map((o) => `${o === all[k] ? '☒' : '☐'} ${o}`).join('   ');
     root.querySelectorAll('#reader [data-fill]').forEach((el) => {
       if (el.dataset.line === undefined) el.dataset.line = el.textContent;
       const val = el.dataset.fill === 'signature' ? '' : String(all[el.dataset.fill] || '').trim();
@@ -170,7 +177,9 @@
       el.classList.toggle('filled', !!val);
     });
   }
-  const signerName = () =>($('[name="__minor"]') && $('[name="__minor"]').checked ? $('#f-guardian').value : ($('#f-name') || {}).value || '').trim();
+  // Who signs: the parent or guardian on the minor consent (or when "under 18" is ticked), else the person named
+  const signerName = () => (doc.signedByGuardian ? ($('#f-guardianName') || {}).value || ''
+    : $('[name="__minor"]') && $('[name="__minor"]').checked ? $('#f-guardian').value : ($('#f-name') || {}).value || '').trim();
 
   function syncVisibility() {
     const v = values();
@@ -202,7 +211,11 @@
     try { d = JSON.parse(sessionStorage.getItem(DRAFT()) || 'null'); } catch (_) {}
     if (!d) {
       // Signing another document? Bring the person's details along.
-      try { const p = JSON.parse(sessionStorage.getItem('wr-sign-person') || 'null'); if (p) fill(p); } catch (_) {}
+      // (on the minor consent those details are the parent's, not the child's)
+      try {
+        const p = JSON.parse(sessionStorage.getItem('wr-sign-person') || 'null');
+        if (p) fill(doc.signedByGuardian ? { ...p, name: undefined, guardianName: p.name } : p);
+      } catch (_) {}
     } else {
       fill(d.v);
       const minor = $('[name="__minor"]');
@@ -219,14 +232,14 @@
       try {
         const q = await (await fetch(API + '/sign-requests/' + encodeURIComponent(reqId))).json();
         const set = (id, v) => { const el = $('#' + id); if (el && !el.value && v) el.value = v; };
-        if (q && q.docId === doc.id) { set('f-name', q.name); set('f-email', q.email); set('f-cell', q.phone); syncVisibility(); }
+        if (q && q.docId === doc.id) { set(doc.signedByGuardian ? 'f-guardianName' : 'f-name', q.name); set('f-email', q.email); set('f-cell', q.phone); syncVisibility(); }
       } catch (_) { /* link already used: the form still works */ }
     }
     try {
       const { user } = await (await fetch(API + '/auth/me')).json();
       if (!user) return;
       const set = (id, v) => { const el = $('#' + id); if (el && !el.value && v) el.value = v; };
-      set('f-name', user.name); set('f-email', user.email); set('f-cell', user.phone);
+      set(doc.signedByGuardian ? 'f-guardianName' : 'f-name', user.name); set('f-email', user.email); set('f-cell', user.phone);
       if (doc.id === 'boarding' && user.role === 'owner') {
         const { horses } = await (await fetch(API + '/my/horses')).json();
         if (horses.length === 1) set('f-horseName', horses[0].name);
@@ -286,6 +299,7 @@
       if (!res.ok) throw new Error(data.error || 'It didn’t go through.');
       const person = {};
       PERSON_KEYS.forEach((k) => { if (body.fields[k]) person[k] = body.fields[k]; });
+      if (doc.signedByGuardian) person.name = body.fields.guardianName; // carry the parent's details, not the child's
       try { sessionStorage.setItem('wr-sign-person', JSON.stringify(person)); sessionStorage.removeItem(DRAFT()); } catch (_) {}
       done(data);
     } catch (ex) {
@@ -315,7 +329,7 @@
   function renderPicker(docs) {
     $('#doc-title').textContent = 'Sign a waiver';
     $('#doc-who').textContent = 'Pick the document you need to sign.';
-    root.innerHTML = `<div class="wrap"><ul class="doc-list">${docs.map((d) => `<li><a class="doc" href="sign.html?doc=${esc(d.id)}"><span><strong>${esc(d.title)}</strong><small>${esc(d.who)}</small></span><span class="go">Sign</span></a></li>`).join('')}</ul></div>`;
+    root.innerHTML = `<div class="wrap"><ul class="doc-list">${docs.filter((d) => !d.retired).map((d) => `<li><a class="doc" href="sign.html?doc=${esc(d.id)}"><span><strong>${esc(d.title)}</strong><small>${esc(d.who)}</small></span><span class="go">Sign</span></a></li>`).join('')}</ul></div>`;
   }
 
   render().catch(() => { root.innerHTML = '<div class="wrap"><p class="form-error">This page didn’t load. Refresh, or call (305) 409-9656.</p></div>'; });

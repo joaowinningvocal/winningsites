@@ -200,8 +200,9 @@
           ${tile('https://www.google.com/maps/dir/?api=1&destination=5360+W+Agate+Ave,+Las+Vegas,+NV', 'pin', 'Directions')}${tile('/contact.html', 'globe', 'Contact')}${tile('/home.html', 'horse', 'Website')}</div>`;
     } else if (p === 'lessons') {
       body += `<p class="section-label">Lesson clients</p>`;
-      body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers', sub: 'Lesson packet and liability waiver, by email or text' });
+      body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers', sub: 'Adult waiver or minor consent, by email or text' });
       body += feature({ href: '#/sent', icon: 'doc', title: 'Waivers you sent', sub: 'See who signed and who still needs to' });
+      body += feature({ act: 'instructor', icon: 'doc', title: 'Instructor and insurance', sub: 'Your details on the riding waivers' });
       body += `<p class="section-label">More</p><div class="tiles">${tile('/waivers.html', 'doc', 'Waivers page')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
     } else {
       if (h.shift !== null && h.shift !== undefined) body += shiftCard(h.shift);
@@ -218,6 +219,7 @@
         body += feature({ href: '/admin/#/waivers', icon: 'doc', title: 'Waivers', sub: h.waiversToCountersign ? `${h.waiversToCountersign} to countersign` : 'All countersigned', badge: h.waiversToCountersign || '' });
         body += feature({ href: '/admin/#/hours', icon: 'clock', title: 'Hours', sub: h.onClock.length ? `On the clock: ${h.onClock.join(', ')}` : 'Nobody on the clock' });
         body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers to a client', sub: 'For lessons and visitors without an account' });
+        body += feature({ act: 'instructor', icon: 'doc', title: 'Instructor and insurance', sub: 'What the riding waivers show in that box' });
         body += `<p class="section-label">Dashboard</p><div class="tiles">${tile('/admin/#/pricing', 'money', 'Pricing')}${tile('/admin/#/horses', 'horse', 'Horses')}${tile('/admin/#/people', 'people', 'People')}
           ${tile('/admin/#/stalls', 'stall', 'Stalls')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
       }
@@ -381,7 +383,7 @@
     const rq = $('#req-sign');
     if (rq) rq.onclick = () => openSheet(`<h2>Request a signature</h2><p class="muted">They get a card in this chat with a Sign button, and it shows in their Documents.</p>
       <form id="rq" novalidate style="margin-top:12px">
-        ${[['boarding', 'Boarding agreement'], ['lesson', 'Adult lesson packet'], ['liability', 'Adult liability waiver']].map(([v, t]) => `<label class="pick"><input type="checkbox" value="${v}"> ${t}</label>`).join('')}
+        ${[['boarding', 'Boarding agreement'], ['participant', 'Adult participant waiver'], ['minor', 'Minor participant consent']].map(([v, t]) => `<label class="pick"><input type="checkbox" value="${v}"> ${t}</label>`).join('')}
         <div class="field" style="margin-top:10px"><label for="rq-n">Note (optional)</label><input id="rq-n" placeholder="Before Saturday, please"></div>
         <button class="btn btn--red btn--big" type="submit">Send request</button><p class="err" id="rq-err"></p></form>`, (sheet) => {
       $('#rq', sheet).onsubmit = async (e) => {
@@ -537,13 +539,31 @@
   }
 
   // ------------------------------------------------------------------ waivers for clients (lesson program, office)
+  // The "Instructor & insurance information" box on the riding waivers: filled in once here, copied into each signature
+  async function instructorSheet() {
+    const { fields, values } = await api('GET', '/admin/instructor');
+    openSheet(`<h2>Instructor and insurance</h2>
+      <p class="muted">This fills in the instructor and insurance box on the adult waiver and the minor consent. Each signature keeps what&rsquo;s here on the day it&rsquo;s signed.</p>
+      <form id="ins" novalidate style="margin-top:12px">
+        ${fields.map((f) => (f.options
+          ? `<div class="field"><label for="ins-${f.key}">${esc(f.label)}</label><select id="ins-${f.key}" name="${f.key}"><option value="">Not answered</option>${f.options.map((o) => `<option${values[f.key] === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></div>`
+          : `<div class="field"><label for="ins-${f.key}">${esc(f.label)}</label><input id="ins-${f.key}" name="${f.key}" value="${esc(values[f.key] || '')}"${f.key === 'iEmail' ? ' type="email"' : f.key === 'iPhone' ? ' type="tel"' : ''} autocomplete="off"></div>`)).join('')}
+        <button class="btn btn--red btn--big" type="submit">Save</button><p class="err" id="ins-err"></p></form>`, (sheet) => {
+      $('#ins', sheet).onsubmit = async (e) => {
+        e.preventDefault();
+        try { await api('PATCH', '/admin/instructor', Object.fromEntries(new FormData(e.target))); sheet.close(); toast('Saved. New signatures show these details.'); }
+        catch (ex) { $('#ins-err', sheet).textContent = ex.message; }
+      };
+    });
+  }
+
   function clientWaiverSheet() {
     openSheet(`<h2>Send waivers</h2><p class="muted">The client gets an email with a button for each document. You can also text the links.</p>
       <form id="cw" novalidate style="margin-top:12px">
         <div class="field"><label for="cw-n">Client name</label><input id="cw-n" autocomplete="off"></div>
         <div class="field"><label for="cw-e">Email</label><input id="cw-e" type="email" autocomplete="off"></div>
         <div class="field"><label for="cw-p">Phone (to text the links)</label><input id="cw-p" type="tel" autocomplete="off"></div>
-        ${[['lesson', 'Adult lesson packet', true], ['liability', 'Adult liability waiver', true], ['boarding', 'Boarding agreement', false]].map(([v, t, on]) => `<label class="pick"><input type="checkbox" value="${v}"${on ? ' checked' : ''}> ${t}</label>`).join('')}
+        ${[['participant', 'Adult participant waiver (18 and over)', true], ['minor', 'Minor participant consent (under 18, a parent signs)', false], ['boarding', 'Boarding agreement', false]].map(([v, t, on]) => `<label class="pick"><input type="checkbox" value="${v}"${on ? ' checked' : ''}> ${t}</label>`).join('')}
         <div class="field" style="margin-top:10px"><label for="cw-note">Note (optional)</label><input id="cw-note" placeholder="See you Saturday at 9"></div>
         <button class="btn btn--red btn--big" type="submit">Send</button><p class="err" id="cw-err"></p></form><div id="cw-done"></div>`, (sheet) => {
       $('#cw', sheet).onsubmit = async (e) => {
@@ -644,7 +664,7 @@
     const full = e.target.closest('[data-full]');
     if (full) { const lb = $('#lightbox'); $('img', lb).src = full.dataset.full; lb.showModal(); return; }
     const a = e.target.closest('[data-act]');
-    if (a) { if (a.dataset.act === 'post') postSheet(); else if (a.dataset.act === 'client-waivers') clientWaiverSheet(); else shiftAct(a.dataset.act, a); }
+    if (a) { if (a.dataset.act === 'post') postSheet(); else if (a.dataset.act === 'client-waivers') clientWaiverSheet(); else if (a.dataset.act === 'instructor') instructorSheet(); else shiftAct(a.dataset.act, a); }
   });
   $('#lightbox').onclick = () => $('#lightbox').close();
   $('#fab').onclick = () => postSheet();
