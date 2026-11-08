@@ -1,0 +1,6 @@
+# Never convert line endings in binary files (Windows checkouts with core.autocrlf)
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.woff2 binary
