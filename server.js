@@ -30,6 +30,11 @@ app.get('/ranch/index.html', (_req, res) => res.redirect(301, '/home.html'));
 app.get(/^\/ranch\/(.+)$/, (req, res) => res.redirect(301, '/' + req.params[0] + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')));
 app.get(['/review', '/review/'], (_req, res) => res.redirect(301, '/'));
 
+// On the website's own address (www.winningranch.com) the front page is the website;
+// the app answers at app.winningranch.com and at the Railway address the store apps use.
+const SITE_HOST = /^(www\.)?winningranch\.com$/i;
+app.get('/', (req, res, next) => (SITE_HOST.test(req.hostname) ? res.set('Cache-Control', 'no-cache').sendFile(path.join(PUBLIC, 'home.html')) : next()));
+
 // Pages and files. HTML is never cached so changes show up right away.
 app.use(express.static(PUBLIC, {
   extensions: ['html'],

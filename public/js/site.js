@@ -13,6 +13,11 @@
     });
   }
 
+  // On www.winningranch.com the front page is the website, so "Log in" goes to the app's own address
+  if (/^(www\.)?winningranch\.com$/i.test(location.hostname)) {
+    document.querySelectorAll('a[href="/"]').forEach((a) => { a.href = 'https://app.winningranch.com/'; });
+  }
+
   // Footer year
   document.querySelectorAll('[data-year]').forEach((el) => { el.textContent = new Date().getFullYear(); });
 
