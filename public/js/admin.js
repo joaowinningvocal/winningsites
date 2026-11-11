@@ -18,6 +18,7 @@
       return inviteView(root, decodeURIComponent(invite[1]), { onSuccess: (u) => { user = u; location.hash = '#/post'; route(); } });
     }
     if (!user) user = await me();
+    if (user && user.mustChangePassword) { location.href = '/'; return; } // the app asks for their own password first
     if (!user || user.role !== 'staff') {
       tabs.hidden = true; $('#logout').hidden = !user; $('#portal-link').hidden = true;
       if (user) {

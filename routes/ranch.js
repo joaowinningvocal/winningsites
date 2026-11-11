@@ -161,6 +161,16 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!m.master || m.role !== 'staff' || m.position !== 'office' || m.active === false) { Object.assign(m, { role: 'staff', position: 'office', active: true, master: true }); store.save(); }
   }
   if (process.env.SEED_DEMO === '1') seedDemo(store, auth, uploads);
+
+  // Ranch hands start with a temporary password the office tells them (HAND_TEMP_PASSWORD on Railway, else "Winning!")
+  // and pick their own the first time they log in. Hands who already made a password keep it.
+  const TEMP_PASSWORD = process.env.HAND_TEMP_PASSWORD || 'Winning!';
+  const giveTempPassword = (u) => {
+    if (u.role !== 'staff' || u.position !== 'hand' || u.password || u.demo || u.active === false) return false;
+    Object.assign(u, { password: auth.hashPassword(TEMP_PASSWORD), mustChangePassword: true });
+    return true;
+  };
+  if (db.users.map(giveTempPassword).some(Boolean)) store.save();
   seedReviewAccounts(store, uploads); // App Store and Google Play review logins
 
   // ---------------------------------------------------------- helpers
@@ -460,7 +470,22 @@ module.exports = function ranchRouter({ dataDir }) {
   // ======================================================== auth
   const loginLimit = rateLimit({ limit: 10, windowMs: 15 * 60e3 });
 
+  r.use((req, res, next) => {
+    if (!req.user || !req.user.mustChangePassword || /^\/auth\/(me|logout|change-password)$/.test(req.path)) return next();
+    res.status(403).json({ error: 'Create your own password first.', mustChangePassword: true });
+  });
+
   r.get('/auth/me', (req, res) => res.json({ user: auth.publicUser(req.user) }));
+
+  // First login with the temporary password: pick your own
+  r.post('/auth/change-password', loginLimit, auth.requireUser, async (req, res) => {
+    const password = req.body && req.body.password;
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Use at least 8 characters.' });
+    if (password === TEMP_PASSWORD) return res.status(400).json({ error: 'Pick a password of your own, not the temporary one.' });
+    Object.assign(req.user, { password: auth.hashPassword(password), mustChangePassword: false });
+    await store.save();
+    res.json({ user: auth.publicUser(req.user) });
+  });
 
   r.post('/auth/login', loginLimit, (req, res) => {
     const email = str(req.body && req.body.email, 160).toLowerCase();
@@ -503,6 +528,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const password = req.body && req.body.password;
     if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Use at least 8 characters.' });
     found.user.password = auth.hashPassword(password);
+    found.user.mustChangePassword = false;
     auth.useInvite(found.inv);
     await store.save();
     auth.startSession(req, res, found.user);
@@ -798,6 +824,7 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!validEmail(email)) return res.status(400).json({ error: 'Add a valid email. It’s what they log in with.' });
     if (db.users.some((u) => u.email === email)) return res.status(409).json({ error: 'Someone already has that email.' });
     const user = { id: newId(), name, email, phone, role, position, password: null, active: true, createdAt: now() };
+    giveTempPassword(user);
     db.users.push(user);
     await store.save();
     const t = auth.createInvite(user);
@@ -834,6 +861,7 @@ module.exports = function ranchRouter({ dataDir }) {
       if (!POSITIONS.includes(b.position)) return res.status(400).json({ error: 'Unknown position.' });
       if (user.id === req.user.id && ['hand', 'lessons'].includes(b.position)) return res.status(400).json({ error: 'You can’t remove your own manager access.' });
       user.position = b.position;
+      giveTempPassword(user);
     }
     if ('active' in b) {
       if (user.id === req.user.id && b.active === false) return res.status(400).json({ error: 'You can’t turn off your own access.' });
@@ -1027,6 +1055,7 @@ module.exports = function ranchRouter({ dataDir }) {
       if (!name || !validEmail(e)) { results.push({ line, error: 'Needs a name and a valid email.' }); continue; }
       if (db.users.some((u) => u.email === e)) { results.push({ line, name, error: 'Already in People.' }); continue; }
       const user = { id: newId(), name: str(name, 100), email: e, phone: str(phone, 40), role: isOwner ? 'owner' : 'staff', position, password: null, active: true, createdAt: now() };
+      giveTempPassword(user);
       db.users.push(user);
       const t = auth.createInvite(user);
       const mail = await emailInvite(user, `${origin(req)}/#/invite/${t}`, req.user);

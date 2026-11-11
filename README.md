@@ -82,6 +82,8 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 - pelo botão **Request signature** no chat do dono, que vira um cartão com botão "Sign";
 - pela aba **People** do dashboard, que também mostra o status dos documentos de cada pessoa.
 
+**Ranch hands entram com a senha temporária `Winning!`** (dá pra trocar pela variável `HAND_TEMP_PASSWORD` no Railway). No primeiro acesso o app pede uma senha própria antes de abrir qualquer coisa. Quem já tinha criado senha continua com a sua.
+
 Não tem cadastro aberto. A equipe cria a pessoa em **People** (no dashboard) e o convite vai sozinho por email. Em **Add several at once** dá pra colar várias pessoas, uma por linha, no formato "nome, email, telefone, posição". Se o email não estiver configurado, o link aparece pra mandar por SMS. A pessoa abre, cria a senha e entra no app.
 
 O app instala no celular pelo "Adicionar à tela de início" e tem modo escuro. A versão nas lojas sai embrulhando o mesmo endereço com Capacitor, como o Winning App.

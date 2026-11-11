@@ -76,6 +76,7 @@
     if (invite) return inviteView(decodeURIComponent(invite[1]));
     try { S.me = (await api('GET', '/auth/me')).user; } catch (_) { S.me = null; }
     if (!S.me) return login();
+    if (S.me.mustChangePassword) return newPasswordView();
     $('#topbar').hidden = false; $('#bottom-nav').hidden = false;
     $('#fab').hidden = !isStaff() || !inChats();
     document.querySelector('[data-nav="messages"]').hidden = !inChats();
@@ -146,6 +147,30 @@
   }
 
   // ------------------------------------------------------------------ invite link: create a password
+  // Logged in with the temporary password: pick your own before anything else
+  function newPasswordView() {
+    $('#topbar').hidden = true; $('#bottom-nav').hidden = true; $('#fab').hidden = true;
+    view.innerHTML = `
+      <div class="login"><form class="login__card" id="npw" novalidate>
+        <img src="/img/crest-light.png" alt="Winning Ranch" width="621" height="632">
+        <h1>Welcome, ${esc(first(S.me.name))}</h1>
+        <p>You logged in with the temporary password. Create your own; you&rsquo;ll use it from now on.</p>
+        <input type="email" autocomplete="username" value="${esc(S.me.email)}" hidden>
+        <div class="field"><label for="np-1">New password</label><input id="np-1" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="field"><label for="np-2">Type it again</label><input id="np-2" type="password" autocomplete="new-password" required></div>
+        <button class="btn btn--red btn--big" type="submit">Save my password</button>
+        <p class="err" id="np-err" role="alert"></p>
+      </form></div>`;
+    $('#npw').onsubmit = async (e) => {
+      e.preventDefault();
+      const a = $('#np-1').value, b = $('#np-2').value;
+      if (a.length < 8) { $('#np-err').textContent = 'Use at least 8 characters.'; return; }
+      if (a !== b) { $('#np-err').textContent = 'The two passwords don’t match.'; return; }
+      try { await api('POST', '/auth/change-password', { password: a }); toast('Password saved'); boot(); }
+      catch (ex) { $('#np-err').textContent = ex.message; }
+    };
+  }
+
   async function inviteView(token) {
     $('#topbar').hidden = true; $('#bottom-nav').hidden = true;
     view.innerHTML = '<div class="login"><div class="login__card"><p>Checking your link…</p></div></div>';
