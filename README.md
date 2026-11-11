@@ -21,6 +21,14 @@ npm install
 npm start          # http://localhost:3000
 ```
 
+## Domínios
+
+- `winningranch.com` e `www.winningranch.com`: o site (a página inicial é a `home.html`). O "Log in" do site leva para o app.
+- `app.winningranch.com`: o app (login de donos e equipe).
+- `winningranch.up.railway.app`: o mesmo app; é o endereço que os apps das lojas abrem.
+
+O domínio está registrado no **Wix** (renova em julho/2027) e o DNS fica no **Cloudflare** (conta do Randy). Os CNAMEs de `@`, `www` e `app` apontam para o Railway; os 5 MX são do Google Workspace (email) e não podem ser apagados. Se ligar o proxy (nuvem laranja), o SSL/TLS do Cloudflare tem que ficar em **Full**.
+
 ## Railway
 
 1. **Volume** montado em `/data` e a variável `DATA_DIR=/data` (sem isso, tudo some a cada deploy).
