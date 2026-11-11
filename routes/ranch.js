@@ -631,10 +631,11 @@ module.exports = function ranchRouter({ dataDir }) {
     done();
   });
 
+  const appWhat = (user) => (user.role === 'owner' ? 'see your horse’s photos and videos, message the team and sign your documents'
+    : user.position === 'lessons' ? 'send waivers to your lesson clients and see when they’re signed'
+      : 'clock in, follow the shift checklist, post updates for owners and chat with the team');
   async function emailInvite(user, url, by) {
-    const what = user.role === 'owner' ? 'see your horse’s photos and videos, message the team and sign your documents'
-      : user.position === 'lessons' ? 'send waivers to your lesson clients and see when they’re signed'
-        : 'clock in, follow the shift checklist, post updates for owners and chat with the team';
+    const what = appWhat(user);
     return mailer.sendEmail({
       to: user.email,
       subject: 'You’re invited to the Winning Ranch app',
@@ -841,6 +842,62 @@ module.exports = function ranchRouter({ dataDir }) {
     const inviteUrl = `${origin(req)}/#/invite/${t}`;
     const mail = req.body && req.body.email ? await emailInvite(user, inviteUrl, req.user) : null;
     res.json({ inviteUrl, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
+  });
+
+  // ---- invite everyone to the app: one email to each person with an account, once (running it again reaches only
+  // the people added since, unless "send again" is ticked).
+  // No password of their own yet (never logged in, or a ranch hand on the temporary one): the link to create it.
+  // Already using it: where to open the app, plus the store links when APP_STORE_URL / PLAY_STORE_URL are set on Railway.
+  // Sent in the background, a little over a second apart (Gmail's limits); the People page shows the progress.
+  const inviteKind = (u) => (!u.password || u.mustChangePassword ? 'setup' : 'app');
+  const inviteTargets = () => db.users.filter((u) => u.active !== false && !u.demo && validEmail(u.email || ''));
+  const storeLinks = () => ({ appStore: (process.env.APP_STORE_URL || '').trim(), googlePlay: (process.env.PLAY_STORE_URL || '').trim() });
+  let inviteJob = null;
+  const jobOut = () => inviteJob && { running: inviteJob.running, total: inviteJob.total, sent: inviteJob.sent, failed: inviteJob.failed, by: inviteJob.by, startedAt: inviteJob.startedAt, finishedAt: inviteJob.finishedAt };
+
+  function emailAppReady(user, base, by) {
+    const s = storeLinks();
+    const stores = [s.appStore && `<a href="${s.appStore}">App Store (iPhone)</a>`, s.googlePlay && `<a href="${s.googlePlay}">Google Play (Android)</a>`].filter(Boolean);
+    return mailer.sendEmail({
+      to: user.email,
+      subject: 'The Winning Ranch app is ready',
+      html: mailer.layout({
+        title: `Hi, ${String(user.name).split(' ')[0]}`,
+        body: `<p>${by ? `${by.name} invited you to` : 'Your account is ready on'} the Winning Ranch app. In it you can ${appWhat(user)}.</p>
+          <p>Log in with this email (${user.email}) and your password. If you don’t remember it, tap “Forgot your password?” on the login screen.</p>
+          ${stores.length ? `<p>Get it on your phone: ${stores.join(' or ')}.</p>` : '<p>On your phone, open the link and add it to your Home Screen.</p>'}`,
+        button: { label: 'Open the app', url: `${base}/` },
+      }),
+    });
+  }
+
+  staff.get('/invite-all', (_req, res) => {
+    const row = (u) => ({ id: u.id, name: u.name, email: u.email, who: u.role === 'owner' ? 'owner' : POSITION_LABEL[u.position || 'office'], kind: inviteKind(u), sentAt: u.appInviteAt || null });
+    res.json({ email: mailer.configured(), stores: storeLinks(), people: inviteTargets().map(row).sort((a, b) => a.name.localeCompare(b.name)), job: jobOut() });
+  });
+
+  staff.post('/invite-all', async (req, res) => {
+    if (mailer.configured() !== 'email') return res.status(400).json({ error: 'Email isn’t set up on the server yet, so nothing can be sent.' });
+    if (inviteJob && inviteJob.running) return res.status(409).json({ error: 'The invites are already going out.', job: jobOut() });
+    const again = !!(req.body && req.body.again);
+    const list = inviteTargets().filter((u) => again || !u.appInviteAt);
+    if (!list.length) return res.status(400).json({ error: 'Everyone already got the invite.' });
+    const base = origin(req), by = { name: req.user.name };
+    inviteJob = { running: true, total: list.length, sent: 0, failed: [], by: req.user.name, startedAt: now(), finishedAt: null };
+    console.log(`[ranch] ${req.user.name} is emailing the app invite to ${list.length} people`);
+    res.status(202).json({ job: jobOut() });
+    const job = inviteJob;
+    for (const u of list) {
+      let mail;
+      try {
+        mail = inviteKind(u) === 'setup' ? await emailInvite(u, `${base}/#/invite/${auth.createInvite(u)}`, by) : await emailAppReady(u, base, by);
+      } catch (e) { mail = { ok: false, error: e.message }; }
+      if (mail && mail.ok) { u.appInviteAt = now(); job.sent++; } else job.failed.push({ name: u.name, email: u.email, error: (mail && mail.error) || 'didn’t send' });
+      await store.save();
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+    job.running = false; job.finishedAt = now();
+    console.log(`[ranch] app invite: ${job.sent} sent, ${job.failed.length} failed`);
   });
 
   staff.patch('/users/:id', async (req, res) => {

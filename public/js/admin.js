@@ -327,7 +327,8 @@
             <p class="inline-error full" data-err></p>
             <div class="form-actions full"><button class="btn btn--red btn--sm" type="submit">Add and get login link</button><button class="btn btn--sm btn--ghost" type="button" data-cancel>Cancel</button></div>
             <div class="full" id="new-invite"></div>
-          </form>` : `<div class="btn-row"><button class="btn btn--red" data-add>Add a person</button><button class="btn" data-bulk>Add several at once</button></div>
+          </form>` : `<div class="btn-row"><button class="btn btn--red" data-add>Add a person</button><button class="btn" data-bulk>Add several at once</button><button class="btn" data-invite-all>Invite everyone to the app</button></div>
+          <div class="panel" id="invite-all" hidden style="margin-top:14px"></div>
           <form class="panel" id="bulk" hidden novalidate style="margin-top:14px"><h2 style="margin:0 0 6px">Add several at once</h2>
             <p class="muted">One person per line: name, email, phone, position (ranch hand, ranch manager, office, lesson program or owner). Each one gets an invite email.</p>
             <div class="field"><textarea name="lines" rows="7" placeholder="Gabi, gabi@example.com, 702-555-0100, ranch manager"></textarea></div>
@@ -349,6 +350,7 @@
     root.onclick = async (e) => {
       if (e.target.closest('[data-add]')) return peopleView(true);
       if (e.target.closest('[data-bulk]')) { $('#bulk', root).hidden = false; $('#bulk textarea', root).focus(); return; }
+      if (e.target.closest('[data-invite-all]')) return inviteAllPanel($('#invite-all', root));
       const em = e.target.closest('[data-invite-email]');
       if (em) {
         try { const r = await api('POST', `/admin/users/${em.closest('.card').dataset.id}/invite`, { email: true }); toast(r.emailed ? 'Invite emailed' : `Not emailed: ${r.emailError}`); } catch (ex) { toast(ex.message); }
@@ -395,6 +397,48 @@
         $('#new-invite', root).innerHTML = (emailed ? `<p class="ok-line">Invite emailed to ${esc(u.email)}.</p>` : '') + inviteBox(inviteUrl, u.name);
         toast(`${u.name} added`);
       } catch (ex) { f.querySelector('[data-err]').textContent = ex.message; }
+    };
+  }
+
+  // Invite everyone to the app: shows who gets which email, sends only when confirmed, then shows the progress
+  let inviteAllTimer = 0;
+  async function inviteAllPanel(box) {
+    clearTimeout(inviteAllTimer);
+    box.hidden = false;
+    box.innerHTML = '<p class="muted">Loading…</p>';
+    let d;
+    try { d = await api('GET', '/admin/invite-all'); } catch (ex) { box.innerHTML = `<p class="inline-error">${esc(ex.message)}</p>`; return; }
+    if (!document.body.contains(box)) return;
+    const pending = d.people.filter((p) => !p.sentAt), done = d.people.filter((p) => p.sentAt);
+    const setup = pending.filter((p) => p.kind === 'setup'), ready = pending.filter((p) => p.kind === 'app');
+    const names = (list) => list.map((p) => `${esc(p.name)} <span class="muted">(${esc(p.who)})</span>`).join(', ');
+    const job = d.job;
+    if (job && job.running) inviteAllTimer = setTimeout(() => { if (document.body.contains(box)) inviteAllPanel(box); }, 2000);
+    box.innerHTML = `<h2 style="margin:0 0 6px">Invite everyone to the app</h2>
+      ${d.email !== 'email' ? '<p class="inline-error">Email isn’t set up on the server yet, so invites can’t be sent from here.</p>' : ''}
+      ${job ? `<p class="${job.running ? '' : 'ok-line'}">${job.running ? `Sending… ${job.sent + job.failed.length} of ${job.total}` : `Done: ${job.sent} sent${job.failed.length ? `, ${job.failed.length} didn’t send` : ''}.`} <span class="muted">(${esc(job.by)})</span></p>
+        ${job.failed.length ? `<ul class="bulk-res">${job.failed.map((f) => `<li>${esc(f.name)} (${esc(f.email)}): <b class="inline-error">${esc(f.error)}</b></li>`).join('')}</ul>` : ''}` : ''}
+      ${pending.length ? `<p>${pending.length} ${pending.length === 1 ? 'person hasn’t' : 'people haven’t'} gotten it yet:</p>
+        <ul class="bulk-res">
+          ${setup.length ? `<li><b>${setup.length}</b> ${setup.length === 1 ? "gets" : "get"} a link to create their password (they haven’t logged in, or still have the temporary one): ${names(setup)}</li>` : ''}
+          ${ready.length ? `<li><b>${ready.length}</b> already ${ready.length === 1 ? "uses it and gets" : "use it and get"} “The Winning Ranch app is ready”, with where to open it: ${names(ready)}</li>` : ''}
+        </ul>` : '<p class="muted">Everyone with an account already got the invite.</p>'}
+      ${done.length ? `<p class="muted" style="margin-top:8px">Already sent: ${done.length} (${names(done)})</p>` : ''}
+      <p class="muted" style="margin-top:8px">${d.stores.appStore || d.stores.googlePlay ? `The email includes the ${[d.stores.appStore && 'App Store', d.stores.googlePlay && 'Google Play'].filter(Boolean).join(' and ')} link.` : 'The store links aren’t in the email yet (they’re added when APP_STORE_URL and PLAY_STORE_URL are set on Railway); it says to open the link on the phone.'}</p>
+      ${job && job.running ? '' : `<div class="form-actions" style="margin-top:10px">
+        ${pending.length ? `<button class="btn btn--red btn--sm" type="button" data-send-all="0">Send to ${pending.length} ${pending.length === 1 ? 'person' : 'people'}</button>` : ''}
+        ${done.length ? `<button class="btn btn--sm btn--ghost" type="button" data-send-all="1">Send again to everyone (${d.people.length})</button>` : ''}
+        <button class="btn btn--sm btn--ghost" type="button" data-close-all>Close</button></div>`}<p class="inline-error" data-err></p>`;
+    box.onclick = async (e) => {
+      e.stopPropagation();
+      if (e.target.closest('[data-close-all]')) { clearTimeout(inviteAllTimer); box.hidden = true; return; }
+      const b = e.target.closest('[data-send-all]');
+      if (!b) return;
+      const again = b.dataset.sendAll === '1', n = again ? d.people.length : pending.length;
+      if (!confirm(`Email the app invite to ${n} ${n === 1 ? 'person' : 'people'} now?`)) return;
+      b.disabled = true;
+      try { await api('POST', '/admin/invite-all', { again }); toast('Sending the invites'); inviteAllPanel(box); }
+      catch (ex) { b.disabled = false; box.querySelector('[data-err]').textContent = ex.message; }
     };
   }
 
