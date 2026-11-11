@@ -6,7 +6,7 @@
   const $ = (s, r = document) => r.querySelector(s);
   const view = $('#view');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const S = { me: null, home: null, poll: 0, threadPoll: 0, files: [] };
+  const S = { me: null, home: null, poll: 0, threadPoll: 0, listPoll: 0, thread: null, files: [] };
   const ROLE = { owner: 'Owner', hand: 'Ranch hand', manager: 'Ranch manager', office: 'Office', lessons: 'Lesson program' };
   const inChats = () => pos() !== 'lessons';
   const pos = () => (S.me && S.me.role === 'staff' ? S.me.position || 'office' : 'owner');
@@ -17,7 +17,13 @@
     const o = { method, headers: {} };
     if (body instanceof FormData) o.body = body;
     else if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
-    const res = await fetch(API + path, o);
+    // A request that hangs (weak signal at the barn) gives up instead of leaving "Loading…" forever
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), body instanceof FormData ? 300000 : 20000);
+    o.signal = ctl.signal;
+    let res;
+    try { res = await fetch(API + path, o); } catch (ex) {
+      throw new Error(ex.name === 'AbortError' ? 'That took too long. Check your connection and try again.' : 'No connection. Check your signal and try again.');
+    } finally { clearTimeout(timer); }
     const data = res.status === 204 ? null : await res.json().catch(() => ({}));
     if (!res.ok) { const e = new Error((data && data.error) || 'Something went wrong.'); e.status = res.status; throw e; }
     return data;
@@ -29,6 +35,8 @@
       x.upload.onprogress = (e) => e.lengthComputable && onProgress && onProgress(e.loaded / e.total);
       x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch (_) {} x.status < 300 ? resolve(d) : reject(new Error(d.error || 'Upload failed.')); };
       x.onerror = () => reject(new Error('Upload failed. Check your connection.'));
+      x.timeout = 600000;
+      x.ontimeout = () => reject(new Error('That took too long. Check your connection.'));
       x.send(fd);
     });
   }
@@ -89,7 +97,10 @@
   }
 
   function route() {
-    clearInterval(S.threadPoll);
+    clearInterval(S.threadPoll); clearInterval(S.listPoll);
+    if (S.thread && S.thread.cleanup) S.thread.cleanup();
+    S.thread = null;
+    const mm = document.getElementById('msgMenu'); if (mm) mm.remove();
     $('#menu').hidden = true; $('#notif').hidden = true;
     if ($('#sheet').open) $('#sheet').close();
     const h = location.hash || '#/home';
@@ -105,6 +116,8 @@
     return homeView();
   }
   window.addEventListener('hashchange', () => S.me && route());
+  // Back on the app after the phone slept or another app was open: catch up right away
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.thread && S.thread.pull) S.thread.pull(); });
 
   async function refreshCounts() {
     try {
@@ -347,64 +360,395 @@
       }).join('') : '<div class="empty" style="margin-top:16px">No updates yet.</div>'}</div>`;
   }
 
-  // ------------------------------------------------------------------ messages
+  // ------------------------------------------------------------------ messages (they work like the Winning App's chats)
+  // The list: cards with "N new", newest first, a search box, refreshed every 8 seconds.
+  // A conversation: the latest 300 messages fetched every 5 seconds and compared with what's on screen
+  // (new ones added, edited or reacted ones redrawn, removed ones taken out), days separated, "seen by",
+  // hold a message for its menu (react, reply, copy, edit, remove, report, block), double tap for ❤️,
+  // swipe right to reply, messages show "Sending…" until they're in and can be sent again if they fail.
+  const QUICK_REACTIONS = ['❤️', '😆', '😮', '😢', '😠', '👍', '🔥'];
+  const URL_RX = /(?:https?:\/\/|www\.)[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
+  const fullUrl = (u) => (/^https?:\/\//i.test(u) ? u : 'https://' + u);
+  function richText(text) {
+    const out = []; let last = 0;
+    String(text).replace(URL_RX, (mm, at) => { out.push([0, text.slice(last, at)]); out.push([1, mm]); last = at + mm.length; return mm; });
+    out.push([0, String(text).slice(last)]);
+    return out.map(([isUrl, t]) => (isUrl ? `<a class="msg-link" href="${esc(fullUrl(t))}" target="_blank" rel="noopener noreferrer">${esc(t.length > 60 ? t.slice(0, 57) + '…' : t)}</a>` : esc(t))).join('');
+  }
+  const dayKey = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
+  function dayLabel(iso) {
+    const k = dayKey(iso), today = dayKey(new Date().toISOString()), yesterday = dayKey(new Date(Date.now() - 864e5).toISOString());
+    if (k === today) return 'Today';
+    if (k === yesterday) return 'Yesterday';
+    return new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
+  }
+  const msgWhen = (iso) => (dayKey(iso) === dayKey(new Date().toISOString()) ? time(iso)
+    : new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, month: 'short', day: 'numeric' }) + ', ' + time(iso));
+  const fullWhen = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const fmtSize = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
+  // PDFs open in the app's viewer (it has a Close button); other documents open in a new tab
+  const fileHref = (f) => (/\.pdf$/i.test(f.name || '') ? `/doc.html?src=${encodeURIComponent(f.url)}&title=${encodeURIComponent(f.name)}` : f.url);
+
+  function loadFailed(ex, retry) {
+    view.innerHTML = `<div class="wrap"><div class="empty">${esc(ex.message || 'That didn’t load.')}<br><button class="btn" type="button" id="retry" style="margin-top:12px">Try again</button></div></div>`;
+    $('#retry').onclick = () => retry();
+  }
+
   async function messagesView() {
     view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
-    const { chats } = await api('GET', '/chats');
+    let chats, q = '';
+    try { ({ chats } = await api('GET', '/chats')); } catch (ex) { return loadFailed(ex, messagesView); }
+    const card = (c) => `<a class="chat-card${c.type === 'channel' ? ' chat-card--main' : ''}${c.unread ? ' has-new' : ''}" href="#/chat/${c.id}">
+        <span class="chat-card__top"><b>${esc(c.title)}</b>${c.unread ? `<span class="new-pill">${c.unread} new</span>` : ''}<span class="chat-card__ago">${c.last ? esc(ago(c.last.at)) : ''}</span></span>
+        <span class="chat-card__last">${c.last ? `${c.last.by ? esc(c.last.by) + ': ' : ''}${esc(c.last.text)}` : esc(c.about || 'No messages yet')}</span></a>`;
+    const paint = () => {
+      const list = $('#chat-list');
+      if (!list) return;
+      const s = q.trim().toLowerCase();
+      const shown = chats.filter((c) => !s || c.title.toLowerCase().includes(s));
+      list.innerHTML = shown.map(card).join('') || `<div class="empty">${s ? 'No chat matches.' : 'No chats yet.'}</div>`;
+    };
     view.innerHTML = `<div class="wrap"><div class="msgs-head"><h1 style="font-size:1.8rem">Messages</h1>${isStaff() ? '<button class="req-btn" type="button" id="new-chat">+ New</button>' : ''}</div>
-      ${chats.map((c) => `<a class="chat-row" href="#/chat/${c.id}"><span class="avatar ${c.type === 'channel' ? 'team' : ''}">${esc((c.title || '?').slice(0, 1))}</span>
-        <span class="meta"><b>${esc(c.title)}</b><span>${c.last ? `${esc(c.last.by)}: ${esc(c.last.text)}` : c.about ? esc(c.about) : 'No messages yet'}</span></span>
-        <span class="side">${c.last ? esc(ago(c.last.at)) : ''}${c.unread ? `<br><b class="unread">${c.unread}</b>` : ''}</span></a>`).join('') || '<div class="empty">No chats yet.</div>'}</div>`;
+      <input class="chat-search" id="chat-q" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off"><div id="chat-list"></div></div>`;
+    paint();
+    $('#chat-q').oninput = (e) => { q = e.target.value; paint(); };
     const nb = $('#new-chat');
     if (nb) nb.onclick = newChatSheet;
+    S.listPoll = setInterval(async () => {
+      if (document.hidden || !$('#chat-list')) return;
+      try { ({ chats } = await api('GET', '/chats')); paint(); } catch (_) { /* next time */ }
+    }, 8000);
   }
 
   async function chatView(id) {
+    const T = { id, rows: null, sig: '', inflight: false, queue: [], mode: null, pin: true, readAt: '', chat: null, msgs: {} };
+    S.thread = T; // route() drops it when they leave, so a late answer never draws over another screen
     view.innerHTML = '<div class="wrap"><p class="muted">Loading…</p></div>';
-    const { chat, messages } = await api('GET', `/chats/${id}/messages`);
-    let last = messages.length ? messages[messages.length - 1].at : '';
+    let d;
+    try { d = await api('GET', `/chats/${id}/messages`); } catch (ex) { if (S.thread === T) loadFailed(ex, () => chatView(id)); return; }
+    if (S.thread !== T) return;
+    T.chat = d.chat;
+    const chat = d.chat;
     S.files = [];
     view.innerHTML = `<div class="wrap thread">
-      <div class="thread__head"><a class="back" href="#/messages" style="margin:0">&lsaquo;</a><span class="avatar ${chat.type === 'channel' ? 'team' : ''}" style="width:38px;height:38px">${esc(chat.title.slice(0, 1))}</span>${chat.type === 'group' || chat.type === 'channel' ? `<button class="title-btn" type="button" id="group-info"><b>${esc(chat.title)}</b><small>${chat.members.length} people</small></button>` : `<b>${esc(chat.title)}</b>`}
+      <div class="thread__head"><a class="back" href="#/messages" style="margin:0" aria-label="Back to Messages">&lsaquo;</a>
+        <button class="title-btn" type="button" id="chat-info"><b>${esc(chat.title)}</b><small id="chat-count">${chat.memberCount} ${chat.memberCount === 1 ? 'person' : 'people'}</small></button>
+        <button class="head-btn" type="button" id="chat-people" aria-label="People in this chat">${ic('people')}<span>People</span></button>
         ${chat.type === 'owner' && isStaff() && pos() !== 'hand' ? '<button class="req-btn" type="button" id="req-sign">Request signature</button>' : ''}</div>
-      <div class="thread__msgs" id="msgs"></div></div>
-      <div class="composer"><p class="pending" id="pending" hidden></p><form id="send" novalidate>
-        <button class="attach" type="button" id="attach" aria-label="Add a photo">${ic('camera')}</button>
-        <input type="file" id="file" accept="image/*,video/*" multiple hidden>
-        <textarea id="text" rows="1" placeholder="Message" aria-label="Message"></textarea>
+      <p class="thread__note" id="net" hidden>Reconnecting…</p>
+      <div class="thread__msgs" id="msgs"></div><div id="pend"></div></div>
+      <div class="composer"><div class="mode-bar" id="mode-bar" hidden></div><p class="pending" id="pending" hidden></p><form id="send" novalidate>
+        <button class="attach" type="button" id="attach" aria-label="Add photos, videos or files">${ic('camera')}</button>
+        <input type="file" id="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" multiple hidden>
+        <textarea id="text" rows="1" placeholder="Message" aria-label="Message" autocapitalize="sentences" enterkeyhint="send"></textarea>
         <button class="send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-3-7z"/></svg></button></form></div>`;
-    const box = $('#msgs');
-    const team = chat.type !== 'owner' || isStaff(); // show who wrote each message, except in an owner's own chat with the ranch
-    let prevBy = null;
-    const add = (list) => {
-      box.insertAdjacentHTML('beforeend', list.map((m) => {
-        const who = !m.mine && team && m.by !== prevBy ? `<span class="who">${esc(m.by)}</span>` : '';
-        prevBy = m.mine ? null : m.by;
-        if (m.kind === 'system') { prevBy = null; return `<p class="sys">${esc(m.text)} &middot; ${esc(time(m.at))}</p>`; }
-        if (m.kind === 'sign-request') {
-          return `<div class="msg ${m.mine ? 'mine' : ''}">${who}<div class="sign-card"><b>Signature requested</b>
-            ${m.docs.map((d) => `<div class="sign-card__row"><span>${esc(d.title)}</span>${d.status === 'signed' ? '<em class="ok">Signed</em>' : d.status === 'cancelled' ? '<em>Cancelled</em>' : isStaff() ? '<em>Waiting</em>' : `<a class="sign-go" href="/sign.html?doc=${esc(d.id)}&app=1">Sign</a>`}</div>`).join('')}
-            ${m.text.includes('. ') ? `<p class="muted">${esc(m.text.split('. ').slice(1).join('. '))}</p>` : ''}</div><time>${esc(time(m.at))}</time></div>`;
-        }
-        const more = !m.mine && m.byId ? ` <button class="msg-more" type="button" data-more="${esc(m.id)}" data-by="${esc(m.byId)}" data-name="${esc(m.by)}" aria-label="Report or block ${esc(m.by)}">&middot;&middot;&middot;</button>` : '';
-        return `<div class="msg ${m.mine ? 'mine' : ''}" data-mid="${esc(m.id)}">${who}<div class="msg-bubble">${m.media.map((x) => x.type === 'video' ? `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(x.url)}" alt="Photo" data-full="${esc(x.url)}">`).join('')}${esc(m.text)}</div><time>${esc(time(m.at))}${more}</time></div>`;
-      }).join(''));
-      window.scrollTo(0, document.body.scrollHeight);
+    const box = $('#msgs'), ta = $('#text');
+
+    // ---- scrolling: stay at the newest message unless they scrolled up to read
+    const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 140;
+    const toBottom = () => window.scrollTo(0, document.documentElement.scrollHeight);
+    const stick = () => { toBottom(); [150, 500, 1200].forEach((ms) => setTimeout(() => { if (T.pin && S.thread === T) toBottom(); }, ms)); };
+    const onScroll = () => { if (S.thread === T) T.pin = nearBottom(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    T.cleanup = () => window.removeEventListener('scroll', onScroll);
+    box.addEventListener('load', () => { if (T.pin && S.thread === T) toBottom(); }, true); // photos still loading push the list down
+
+    // ---- one message
+    const aggregate = (list) => {
+      if (!list || !list.length) return null;
+      const by = {};
+      list.forEach((x) => { (by[x.e] = by[x.e] || []).push(x.name); });
+      return { html: Object.keys(by).map((e) => `<span>${e}${by[e].length > 1 ? ' ' + by[e].length : ''}</span>`).join(''), names: Object.keys(by).map((e) => `${e} ${by[e].join(', ')}`).join('\n') };
     };
-    add(messages);
-    if (!messages.length) box.innerHTML = `<p class="muted" style="text-align:center;margin-top:30px">${chat.type === 'channel' ? `Say hi to everyone in ${esc(chat.title)}.` : isStaff() ? 'Start the conversation with this owner.' : 'Ask the ranch anything. The team usually answers fast.'}</p>`;
-    api('POST', `/chats/${id}/read`).then(refreshCounts).catch(() => {});
-    const pull = async (includeMine) => {
+    function renderMsg(m) {
+      const row = document.createElement('div');
+      if (m.kind === 'system') { row.className = 'sys'; row.dataset.mid = m.id; row.textContent = `${m.text} · ${msgWhen(m.at)}`; return row; }
+      row.className = 'msg-row' + (m.mine ? ' mine' : '');
+      row.dataset.mid = m.id;
+      const from = m.mine ? '' : `<div class="msg-from">${esc(m.by)}</div>`;
+      const when = `<div class="msg-time" title="${esc(fullWhen(m.at))}">${m.editedAt ? 'edited · ' : ''}${esc(msgWhen(m.at))}</div>`;
+      if (m.deleted) {
+        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble msg-deleted">${from}<i>This message was deleted</i>${when}</div></div>`;
+      } else if (m.kind === 'sign-request') {
+        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble sign-bubble">${from}<div class="sign-card"><b>Signature requested</b>
+          ${m.docs.map((x) => `<div class="sign-card__row"><span>${esc(x.title)}</span>${x.status === 'signed' ? '<em class="ok">Signed</em>' : x.status === 'cancelled' ? '<em>Cancelled</em>' : isStaff() ? '<em>Waiting</em>' : `<a class="sign-go" href="/sign.html?doc=${esc(x.id)}&app=1">Sign</a>`}</div>`).join('')}
+          ${m.text.includes('. ') ? `<p class="muted">${esc(m.text.split('. ').slice(1).join('. '))}</p>` : ''}</div>${when}</div></div>`;
+      } else {
+        const q = m.replyTo ? `<button type="button" class="msg-quote${m.replyTo.img ? ' has-img' : ''}" data-jump="${esc(m.replyTo.id)}">${m.replyTo.img ? `<img class="mq-img" src="${esc(m.replyTo.img)}" alt="">` : ''}<b>${esc(m.replyTo.by)}</b><span>${esc(m.replyTo.text)}</span></button>` : '';
+        const imgs = m.media.filter((x) => x.type === 'image'), vids = m.media.filter((x) => x.type === 'video'), files = m.media.filter((x) => x.type === 'file');
+        const gallery = imgs.length ? `<div class="msg-gallery g${Math.min(imgs.length, 3)}">${imgs.map((x, i) => `<img class="msg-img" src="${esc(x.url)}" alt="Photo ${i + 1} of ${imgs.length}" data-full="${esc(x.url)}" loading="lazy">`).join('')}</div>` : '';
+        const videos = vids.map((x) => `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>`).join('');
+        const docs = files.map((x) => `<a class="msg-file" href="${esc(fileHref(x))}"${/\.pdf$/i.test(x.name || '') ? '' : ' target="_blank" rel="noopener"'}><span class="fi" aria-hidden="true">📄</span><span class="fn"><b>${esc(x.name)}</b><small>${esc(fmtSize(x.size))} · Tap to open</small></span></a>`).join('');
+        const reacts = aggregate(m.reactions);
+        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble">${from}${q}${gallery}${videos}${docs}${m.text ? `<div class="msg-text">${richText(m.text)}</div>` : ''}${when}</div>
+          ${reacts ? `<button type="button" class="msg-reacts" aria-label="Reactions: ${esc(reacts.names)}">${reacts.html}</button>` : ''}</div>`;
+        const rb = row.querySelector('.msg-reacts');
+        if (rb) rb.onclick = () => toast(reacts.names.replace(/\n/g, ' · '));
+        const qb = row.querySelector('.msg-quote');
+        if (qb) qb.onclick = (e) => { e.stopPropagation(); jumpTo(qb.dataset.jump); };
+      }
+      press(row.querySelector('.msg-bubble'), m);
+      return row;
+    }
+    const sigOf = (m) => JSON.stringify([m.editedAt || '', m.deleted ? 1 : 0, (m.reactions || []).map((x) => x.uid + x.e).join(), m.text || '', (m.docs || []).map((x) => x.status).join(), m.media.length]);
+    const dayBlock = (iso) => {
+      const b = document.createElement('div');
+      b.className = 'msg-dayblock'; b.dataset.day = dayKey(iso);
+      b.innerHTML = `<div class="msg-day"><span>${esc(dayLabel(iso))}</span></div>`;
+      box.appendChild(b);
+      return b;
+    };
+    const append = (m) => {
+      const blocks = box.querySelectorAll('.msg-dayblock');
+      let b = blocks[blocks.length - 1];
+      if (!b || b.dataset.day !== dayKey(m.at)) b = dayBlock(m.at);
+      b.appendChild(renderMsg(m));
+    };
+    const rowEl = (mid) => box.querySelector(`[data-mid="${CSS.escape(mid)}"]`);
+    function full(msgs) {
+      box.innerHTML = '';
+      if (!msgs.length) box.innerHTML = `<p class="muted thread__empty">${chat.type === 'channel' ? `Say hi to everyone in ${esc(chat.title)}.` : isStaff() ? 'Start the conversation.' : 'Ask the ranch anything. The team usually answers fast.'}</p>`;
+      msgs.forEach(append);
+    }
+    // Only what changed: removed ones out, edited or reacted ones redrawn, new ones added at the end
+    function patch(msgs, rows) {
+      const prevIds = T.rows.map((x) => x[0]), nowIds = rows.map((x) => x[0]), now = new Set(nowIds);
+      const kept = prevIds.filter((x) => now.has(x));
+      for (let i = 0; i < kept.length; i++) if (nowIds[i] !== kept[i]) return false;
+      prevIds.filter((x) => !now.has(x)).forEach((x) => { const el = rowEl(x); if (el) el.remove(); });
+      box.querySelectorAll('.msg-dayblock').forEach((b) => { if (!b.querySelector('[data-mid]')) b.remove(); });
+      const prevSig = new Map(T.rows);
+      msgs.slice(0, kept.length).forEach((m, i) => { if (prevSig.get(m.id) !== rows[i][1]) { const el = rowEl(m.id); if (el) el.replaceWith(renderMsg(m)); } });
+      const empty = box.querySelector('.thread__empty');
+      if (empty && msgs.length) empty.remove();
+      msgs.slice(kept.length).forEach(append);
+      return true;
+    }
+    // "Seen by": each person's mark under the last message they had when they opened the chat
+    function paintSeen(msgs, seen) {
+      box.querySelectorAll('.msg-seen').forEach((el) => el.remove());
+      const at = {};
+      for (const p of seen) {
+        let last = null;
+        for (const m of msgs) { if (m.at <= p.at && m.kind !== 'system') last = m; else if (m.at > p.at) break; }
+        if (last) (at[last.id] = at[last.id] || []).push(p);
+      }
+      for (const [mid, people] of Object.entries(at)) {
+        const el = rowEl(mid);
+        if (!el) continue;
+        const names = people.map((p) => first(p.name));
+        const row = document.createElement('div');
+        row.className = 'msg-seen';
+        row.title = people.map((p) => `${p.name} · ${fullWhen(p.at)}`).join('\n');
+        row.innerHTML = `${people.slice(0, 5).map((p) => `<span class="ms-av" aria-hidden="true">${esc(p.name.slice(0, 1))}</span>`).join('')}<span class="ms-t">${people.length === seen.length && seen.length > 1 ? 'Seen by everyone' : `Seen by ${esc(names.length > 3 ? names.slice(0, 3).join(', ') + ' +' + (names.length - 3) : names.join(', '))}`}</span>`;
+        row.onclick = () => toast(row.title.replace(/\n/g, ' · '));
+        el.after(row);
+      }
+      return JSON.stringify(Object.entries(at).map(([k, v]) => [k, v.map((p) => p.id).join()]));
+    }
+    function draw(data, initial) {
+      const msgs = data.messages;
+      msgs.forEach((m) => { T.msgs[m.id] = m; });
+      const rows = msgs.map((m) => [m.id, sigOf(m)]);
+      const base = JSON.stringify(rows);
+      const pinned = initial || T.pin;
+      if (initial || !T.rows || base !== T.base) { if (initial || !T.rows || !patch(msgs, rows)) full(msgs); }
+      T.seenSig = paintSeen(msgs, data.seen || []);
+      T.rows = rows; T.base = base;
+      if (pinned) { T.pin = true; stick(); }
+      const latest = msgs.filter((m) => !m.mine).pop();
+      if (latest && latest.at > T.readAt) { T.readAt = latest.at; api('POST', `/chats/${id}/read`).then(refreshCounts).catch(() => {}); }
+    }
+    const jumpTo = (mid) => {
+      const el = rowEl(mid);
+      if (!el) { toast('That message is further back.'); return; }
+      el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      el.classList.add('msg-flash'); setTimeout(() => el.classList.remove('msg-flash'), 1400);
+    };
+
+    // ---- staying up to date: one request at a time, right away when the phone wakes up
+    async function pull() {
+      if (T.inflight || S.thread !== T) return;
+      T.inflight = true;
       try {
-        const r = await api('GET', `/chats/${id}/messages?after=${encodeURIComponent(last)}`);
-        const fresh = r.messages.filter((m) => includeMine || !m.mine);
-        if (r.messages.length) { if (!last) box.innerHTML = ''; last = r.messages[r.messages.length - 1].at; if (fresh.length) { add(fresh); api('POST', `/chats/${id}/read`).catch(() => {}); } }
-      } catch (_) {}
+        const data = await api('GET', `/chats/${id}/messages`);
+        if (S.thread !== T) return;
+        T.chat = data.chat;
+        const cnt = $('#chat-count');
+        if (cnt) cnt.textContent = `${data.chat.memberCount} ${data.chat.memberCount === 1 ? 'person' : 'people'}`;
+        draw(data);
+        const net = $('#net'); if (net) net.hidden = true;
+      } catch (ex) {
+        if (S.thread !== T) return;
+        if (ex.status === 404) { toast('You’re not in that chat anymore.'); location.hash = '#/messages'; return; }
+        const net = $('#net'); if (net) net.hidden = false;
+      } finally { T.inflight = false; }
+    }
+    T.pull = pull;
+    draw(d, true);
+    S.threadPoll = setInterval(() => { if (!document.hidden) pull(); }, 5000);
+
+    // ---- sending: shows right away, "Sending…" until it's in, tap to send again if it failed
+    function renderPending() {
+      const pend = $('#pend');
+      if (!pend) return;
+      pend.innerHTML = T.queue.map((j, i) => `<div class="msg-row mine"><div class="msg-wrap"><button type="button" class="msg-bubble msg-pending${j.state === 'failed' ? ' failed' : ''}" data-job="${i}">
+        ${j.files.length ? `<div class="msg-pend-files">📎 ${j.files.length} ${j.files.length === 1 ? 'attachment' : 'attachments'}</div>` : ''}${j.text ? `<div class="msg-text">${esc(j.text)}</div>` : ''}
+        <div class="msg-time">${j.state === 'failed' ? `⚠ Not sent · tap to try again${j.err ? ` (${esc(j.err)})` : ''}` : 'Sending…'}</div></button></div></div>`).join('');
+      pend.querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => {
+        const j = T.queue[+b.dataset.job];
+        if (!j || j.state !== 'failed') return;
+        openSheet(`<h2>Not sent</h2><div style="display:grid;gap:10px;margin-top:12px"><button class="btn btn--red" type="button" data-x="retry">Try again</button><button class="btn" type="button" data-x="drop">Delete it</button></div>`, (sh) => {
+          sh.querySelector('[data-x="retry"]').onclick = () => { sh.close(); deliver(j); };
+          sh.querySelector('[data-x="drop"]').onclick = () => { sh.close(); T.queue = T.queue.filter((x) => x !== j); renderPending(); };
+        });
+      }; });
+    }
+    async function deliver(job) {
+      job.state = 'sending'; renderPending();
+      const fd = new FormData();
+      fd.append('text', job.text); fd.append('clientKey', job.key);
+      if (job.replyTo) fd.append('replyTo', job.replyTo);
+      job.files.forEach((f) => fd.append('files', f));
+      try {
+        await upload(`/chats/${id}/messages`, fd);
+        T.queue = T.queue.filter((x) => x !== job);
+        if (S.thread === T) { renderPending(); T.pin = true; await pull(); }
+      } catch (ex) { job.state = 'failed'; job.err = ex.message; if (S.thread === T) renderPending(); }
+    }
+    function setMode(mode) {
+      T.mode = mode;
+      const bar = $('#mode-bar');
+      if (!mode) { bar.hidden = true; bar.innerHTML = ''; return; }
+      const m = mode.m;
+      bar.innerHTML = `<span class="mb-txt"><b>${mode.kind === 'edit' ? 'Editing your message' : `Replying to ${esc(m.mine ? 'yourself' : m.by)}`}</b><span>${esc(m.text || (m.media[0] ? (m.media[0].type === 'file' ? '📎 ' + m.media[0].name : '📷 Photo') : ''))}</span></span><button type="button" aria-label="Cancel">&times;</button>`;
+      bar.hidden = false;
+      bar.querySelector('button').onclick = () => { if (T.mode && T.mode.kind === 'edit') { ta.value = ''; grow(); } setMode(null); };
+    }
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
+    ta.addEventListener('input', grow);
+    async function send() {
+      const text = ta.value.trim();
+      if (T.mode && T.mode.kind === 'edit') {
+        const m = T.mode.m;
+        try { await api('PATCH', `/chats/${id}/messages/${m.id}`, { text }); setMode(null); ta.value = ''; grow(); pull(); } catch (ex) { toast(ex.message); }
+        return;
+      }
+      if (!text && !S.files.length) return;
+      const job = { key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, files: S.files.slice(), replyTo: T.mode && T.mode.kind === 'reply' ? T.mode.m.id : '', state: 'sending' };
+      T.queue.push(job);
+      ta.value = ''; grow(); S.files = []; $('#file').value = ''; $('#pending').hidden = true; setMode(null);
+      T.pin = true; renderPending(); stick();
+      deliver(job);
+    }
+    $('#send').onsubmit = (e) => { e.preventDefault(); send(); };
+    $('#attach').onclick = () => $('#file').click();
+    $('#file').onchange = (e) => {
+      S.files = [...e.target.files].slice(0, 6);
+      const p = $('#pending');
+      p.hidden = !S.files.length;
+      p.textContent = `${S.files.length} ${S.files.length === 1 ? 'file' : 'files'} ready to send: ${S.files.map((f) => f.name).join(', ')}`;
     };
-    S.threadPoll = setInterval(() => { if (!document.hidden) pull(false); }, 4000);
-    box.onclick = (e) => { const b = e.target.closest('[data-more]'); if (b) messageSheet(id, b.dataset.more, b.dataset.by, b.dataset.name); };
-    const gi = $('#group-info');
-    if (gi) gi.onclick = () => groupSheet(chat);
+
+    // ---- a message's menu: hold it (or right-click); double tap = ❤️; swipe right = reply
+    let clickBlock = 0;
+    box.addEventListener('click', (e) => { if (Date.now() < clickBlock) { e.preventDefault(); e.stopPropagation(); } }, true);
+    function press(el, m) {
+      if (!el || m.kind === 'system') return;
+      let t = null, sx = 0, sy = 0, lastTap = 0;
+      const cancel = () => { clearTimeout(t); t = null; el.classList.remove('pressing'); };
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button > 0) return;
+        sx = e.clientX; sy = e.clientY; el.classList.add('pressing');
+        t = setTimeout(() => { t = null; el.classList.remove('pressing'); clickBlock = Date.now() + 700; if (navigator.vibrate) navigator.vibrate(12); openMenu(m, el); }, 450);
+      });
+      el.addEventListener('pointermove', (e) => { if (t && (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10)) cancel(); });
+      el.addEventListener('pointerup', cancel); el.addEventListener('pointercancel', cancel); el.addEventListener('pointerleave', cancel);
+      el.addEventListener('contextmenu', (e) => { e.preventDefault(); cancel(); openMenu(m, el); });
+      if (m.deleted) return;
+      el.addEventListener('pointerup', (e) => {
+        if (e.button > 0 || e.target.closest('a, button.msg-quote, video, img')) { lastTap = 0; return; }
+        const now = Date.now();
+        if (now - lastTap < 350) { lastTap = 0; clickBlock = now + 500; react(m, '❤️'); } else lastTap = now;
+      });
+      let tx = 0, ty = 0, dx = 0, tracking = false, swiping = false;
+      el.addEventListener('touchstart', (e) => { if (e.touches.length !== 1) return; tx = e.touches[0].clientX; ty = e.touches[0].clientY; dx = 0; tracking = true; swiping = false; }, { passive: true });
+      el.addEventListener('touchmove', (e) => {
+        if (!tracking) return;
+        const x = e.touches[0].clientX - tx, y = e.touches[0].clientY - ty;
+        if (!swiping) {
+          if (Math.abs(y) > 10 && Math.abs(y) > Math.abs(x)) { tracking = false; return; }
+          if (!(x > 12 && x > Math.abs(y) * 1.5)) return;
+          swiping = true; cancel();
+        }
+        dx = Math.max(0, Math.min(x, 90));
+        el.style.transform = `translateX(${dx}px)`;
+        el.classList.toggle('swipe-ready', dx >= 60);
+      }, { passive: true });
+      const end = () => {
+        if (!tracking) return;
+        tracking = false;
+        if (!swiping) return;
+        swiping = false;
+        el.classList.remove('swipe-ready');
+        el.style.transition = 'transform .18s ease'; el.style.transform = ''; setTimeout(() => { el.style.transition = ''; }, 200);
+        clickBlock = Date.now() + 400;
+        if (dx >= 60) { setMode({ kind: 'reply', m }); ta.focus({ preventScroll: true }); }
+      };
+      el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', end, { passive: true });
+    }
+    async function react(m, e) {
+      try { await api('POST', `/chats/${id}/messages/${m.id}/react`, { e }); pull(); } catch (ex) { toast(ex.message); }
+    }
+    function openMenu(m, el) {
+      document.querySelectorAll('.msg-selected').forEach((x) => x.classList.remove('msg-selected'));
+      el.classList.add('msg-selected');
+      const acts = [];
+      if (!m.deleted) {
+        acts.push(['reply', '↩️', 'Reply']);
+        if (m.text) acts.push(['copy', '📋', 'Copy']);
+        if (m.mine && m.text && m.kind !== 'sign-request') acts.push(['edit', '✏️', 'Edit']);
+        if (!m.mine && m.byId) acts.push(['report', '⚑', 'Report'], ['block', '🚫', `Block ${first(m.by)}`]);
+        if (m.mine || (T.chat && T.chat.canModerate)) acts.push(['del_all', '🗑️', 'Remove for everyone', 'danger']);
+      }
+      acts.push(['del_me', '🙈', 'Remove for me', m.deleted ? 'danger' : '']);
+      const mine = ((m.reactions || []).find((x) => x.uid === S.me.id) || {}).e;
+      const ov = document.createElement('div');
+      ov.id = 'msgMenu';
+      ov.innerHTML = `<div class="mm-sheet" role="dialog" aria-label="Message actions">
+          ${m.deleted || m.kind === 'sign-request' ? '' : `<div class="mm-reacts">${QUICK_REACTIONS.map((e) => `<button type="button" data-react="${e}" class="${mine === e ? 'on' : ''}" aria-label="React ${e}">${e}</button>`).join('')}</div>`}
+          <div class="mm-preview">${esc(m.deleted ? 'This message was deleted' : m.text || (m.media[0] ? (m.media[0].type === 'file' ? '📎 ' + m.media[0].name : '📷 Photo') : ''))}</div>
+          ${acts.map(([k, icon, label, cls]) => `<button type="button" class="mm-act ${cls || ''}" data-mm="${k}"><span aria-hidden="true">${icon}</span>${esc(label)}</button>`).join('')}
+          <button type="button" class="mm-act mm-cancel" data-mm="cancel">Cancel</button></div>`;
+      // The finger that opened it is still down: the sheet waits until it's lifted before taking taps
+      let armed = Date.now() + 400;
+      ov.addEventListener('click', (e) => { if (Date.now() < armed) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      const close = () => { ov.remove(); el.classList.remove('msg-selected'); document.removeEventListener('keydown', onKey); };
+      const onKey = (e) => { if (e.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(ov);
+      ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+      ov.querySelectorAll('[data-react]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); close(); react(m, b.dataset.react); }; });
+      ov.querySelectorAll('[data-mm]').forEach((b) => { b.onclick = async (e) => {
+        e.stopPropagation();
+        close();
+        const a = b.dataset.mm;
+        if (a === 'reply') { setMode({ kind: 'reply', m }); ta.focus({ preventScroll: true }); }
+        else if (a === 'copy') { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch (_) { toast('Couldn’t copy'); } }
+        else if (a === 'edit') { setMode({ kind: 'edit', m }); ta.value = m.text; grow(); ta.focus(); }
+        else if (a === 'report' || a === 'block') messageSheet(id, m.id, m.byId, m.by, a);
+        else if (a === 'del_all') {
+          if (!confirm('Remove this message for everyone?')) return;
+          try { await api('DELETE', `/chats/${id}/messages/${m.id}?for=all`); pull(); } catch (ex) { toast(ex.message); }
+        } else if (a === 'del_me') {
+          try { await api('DELETE', `/chats/${id}/messages/${m.id}?for=me`); pull(); } catch (ex) { toast(ex.message); }
+        }
+      }; });
+    }
+
+    // ---- header
+    $('#chat-info').onclick = () => peopleSheet(id);
+    $('#chat-people').onclick = () => peopleSheet(id);
     const rq = $('#req-sign');
     if (rq) rq.onclick = () => openSheet(`<h2>Request a signature</h2><p class="muted">They get a card in this chat with a Sign button, and it shows in their Documents.</p>
       <form id="rq" novalidate style="margin-top:12px">
@@ -419,31 +763,14 @@
           const r = await api('POST', '/admin/sign-requests', { userId: chat.ownerId, docIds, note: $('#rq-n', sheet).value });
           sheet.close();
           toast(r.requested.length ? 'Request sent' : 'Those were already requested');
-          pull(true);
+          pull();
         } catch (ex) { $('#rq-err', sheet).textContent = ex.message; }
       };
     });
-    const ta = $('#text');
-    ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; });
-    $('#attach').onclick = () => $('#file').click();
-    $('#file').onchange = (e) => { S.files = [...e.target.files].slice(0, 6); const p = $('#pending'); p.hidden = !S.files.length; p.textContent = `${S.files.length} photo${S.files.length === 1 ? '' : 's'} ready to send`; };
-    $('#send').onsubmit = async (e) => {
-      e.preventDefault();
-      const text = ta.value.trim();
-      if (!text && !S.files.length) return;
-      const fd = new FormData(); fd.append('text', text); S.files.forEach((f) => fd.append('files', f));
-      const btn = e.target.querySelector('.send'); btn.disabled = true;
-      try {
-        const { message } = await upload(`/chats/${id}/messages`, fd);
-        if (!last) box.innerHTML = '';
-        last = message.at; add([message]);
-        ta.value = ''; ta.style.height = 'auto'; S.files = []; $('#file').value = ''; $('#pending').hidden = true;
-      } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
-    };
   }
 
   // ------------------------------------------------------------------ report a message, block a person
-  function messageSheet(chatId, mid, userId, name) {
+  function messageSheet(chatId, mid, userId, name, start) {
     openSheet(`<h2>Message from ${esc(name)}</h2>
       <div style="display:grid;gap:10px;margin-top:14px"><button class="btn" type="button" data-x="report">Report this message</button>
       <button class="btn" type="button" data-x="block">Block ${esc(name)}</button></div>`, (sheet) => {
@@ -469,13 +796,14 @@
           try { await api('POST', '/blocks', { userId }); sheet.close(); toast(`${name} is blocked`); route(); } catch (ex) { $('#bk-err', sheet).textContent = ex.message; }
         };
       };
+      if (start) sheet.querySelector(`[data-x="${start}"]`).click();
     });
   }
 
   async function blockedSheet() {
     const { blocked } = await api('GET', '/blocks');
     openSheet(`<h2>Blocked people</h2>${blocked.length ? blocked.map((b) => `<div class="pick" style="justify-content:space-between"><span>${esc(b.name)}</span><button class="req-btn" type="button" data-unblock="${esc(b.id)}">Unblock</button></div>`).join('')
-      : '<p class="muted">You haven&rsquo;t blocked anyone. To block someone, tap &middot;&middot;&middot; next to one of their messages.</p>'}`, (sheet) => {
+      : '<p class="muted">You haven&rsquo;t blocked anyone. To block someone, hold one of their messages and tap Block.</p>'}`, (sheet) => {
       sheet.onclick = async (e) => {
         if (e.target === sheet) return sheet.close();
         const b = e.target.closest('[data-unblock]');
@@ -538,28 +866,59 @@
     });
   }
 
-  async function groupSheet(chat) {
-    const fixed = chat.type === 'channel'; // the fixed chats keep their names; only Barn Management has a hand-picked list
-    const { people: all } = chat.canManage ? await api('GET', '/chats/people') : { people: [] };
-    const people = fixed ? all.filter((p) => p.role === 'staff') : all;
-    const inGroup = new Set(chat.members.map((m) => m.id));
-    openSheet(`<h2>${esc(chat.title)}</h2>
-      ${fixed ? `<p class="muted">${chat.key === 'management' ? 'Only the people below see this chat. Anyone in it can add or remove people.' : `${esc(chat.about)} are in this chat automatically.`}</p>` : ''}
-      ${chat.canManage && !fixed ? `<form id="gr" class="row-form" novalidate><input id="gr-t" value="${esc(chat.title)}" aria-label="Group name" maxlength="60"><button class="btn" type="submit">Rename</button></form>` : ''}
-      <p class="section-label">${chat.members.length} people</p>
-      ${chat.members.map((m) => `<div class="member"><span class="avatar" style="width:36px;height:36px;font-size:.9rem">${esc(m.name.slice(0, 1))}</span><span>${esc(m.name)}${m.id === S.me.id ? ' (you)' : ''}</span>
-        ${chat.canManage && m.id !== S.me.id ? `<button type="button" class="linkish" data-rm="${m.id}">Remove</button>` : ''}</div>`).join('')}
-      ${chat.canManage && people.some((p) => !inGroup.has(p.id)) ? `<p class="section-label">Add people</p><form id="ga" novalidate>${people.filter((p) => !inGroup.has(p.id)).map((p) => `<label class="pick"><input type="checkbox" value="${p.id}"> ${esc(p.name)}</label>`).join('')}<button class="btn" type="submit" style="margin-top:10px">Add to ${fixed ? 'this chat' : 'group'}</button></form>` : ''}
-      ${!fixed || chat.key === 'management' ? `<button class="btn" type="button" id="g-leave" style="margin-top:16px">Leave ${fixed ? 'this chat' : 'group'}</button>` : ''}<p class="err" id="g-err"></p>`, (sheet) => {
-      const err = (ex) => { $('#g-err', sheet).textContent = ex.message; };
-      const done = (msg) => { sheet.close(); toast(msg); route(); };
-      const rn = $('#gr', sheet);
-      if (rn) rn.onsubmit = async (e) => { e.preventDefault(); try { await api('PATCH', `/chats/${chat.id}`, { title: $('#gr-t', sheet).value }); done('Group renamed'); } catch (ex) { err(ex); } };
-      const ga = $('#ga', sheet);
-      if (ga) ga.onsubmit = async (e) => { e.preventDefault(); const userIds = [...ga.querySelectorAll('input:checked')].map((x) => x.value); try { await api('POST', `/chats/${chat.id}/members`, { userIds }); done('Added'); } catch (ex) { err(ex); } };
-      sheet.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = async () => { try { await api('DELETE', `/chats/${chat.id}/members/${b.dataset.rm}`); done('Removed'); } catch (ex) { err(ex); } }; });
-      const lv = $('#g-leave', sheet);
-      if (lv) lv.onclick = async () => { if (!confirm(fixed ? 'Leave this chat? Someone in it can add you back.' : 'Leave this group?')) return; try { await api('DELETE', `/chats/${chat.id}/members/${S.me.id}`); sheet.close(); location.hash = '#/messages'; } catch (ex) { err(ex); } };
+  // People in a chat: who's in it, add or remove people (managers, the office, Barn Management, a group's creator), rename, leave.
+  // Works on every chat: Workers and Boarders keep their automatic lists plus whoever is added, an owner's chat can take
+  // a co-owner or a trainer, and adding someone to a direct message turns it into a group.
+  async function peopleSheet(chatId) {
+    let p;
+    try { p = await api('GET', `/chats/${chatId}/people`); } catch (ex) { toast(ex.message); return; }
+    let q = '';
+    const refreshThread = () => { if (S.thread && S.thread.id === chatId && S.thread.pull) S.thread.pull(); };
+    openSheet(`<h2 id="ps-title">${esc(p.title)}</h2>
+      ${p.note ? `<p class="muted">${esc(p.note)}</p>` : ''}
+      ${p.canRename ? `<form id="ps-rn" class="row-form" novalidate style="margin-top:12px"><input id="ps-t" value="${esc(p.title)}" aria-label="Group name" maxlength="60"><button class="btn" type="submit">Rename</button></form>` : ''}
+      <input class="chat-search" id="ps-q" type="search" placeholder="Search people" aria-label="Search people" autocomplete="off" style="margin-top:12px">
+      <div id="ps-list"></div>
+      ${p.canLeave ? '<button class="btn" type="button" id="ps-leave" style="margin-top:16px">Leave this chat</button>' : ''}<p class="err" id="ps-err"></p>`, (sheet) => {
+      const list = $('#ps-list', sheet), err = (ex) => { $('#ps-err', sheet).textContent = ex.message; };
+      const row = (x, act) => `<div class="cp-row"><span class="avatar cp-av" aria-hidden="true">${esc(x.name.slice(0, 1))}</span>
+        <span class="cp-name"><b>${esc(x.name)}${x.you ? ' (you)' : ''}</b><small>${esc(x.tag)}${x.owner ? ' · owns this chat' : ''}${x.added ? ' · added' : ''}</small></span>${act}</div>`;
+      const paint = () => {
+        const s = q.trim().toLowerCase();
+        const match = (x) => !s || x.name.toLowerCase().includes(s) || (x.tag || '').includes(s);
+        const members = p.members.filter(match), others = p.others.filter(match);
+        list.innerHTML = `<p class="section-label">In this chat · ${p.members.length}</p>
+          ${members.map((x) => row(x, p.canManage && !x.you && !x.owner && p.type !== 'dm' ? `<button type="button" class="cp-btn" data-rm="${esc(x.id)}" data-name="${esc(x.name)}">Remove</button>` : '')).join('') || '<p class="muted">Nobody matches.</p>'}
+          ${p.canManage ? `<p class="section-label">Add someone</p>${others.map((x) => row(x, `<button type="button" class="cp-btn cp-add" data-add="${esc(x.id)}">Add</button>`)).join('')
+            || `<p class="muted">${s ? 'Nobody matches.' : 'Everyone is already in this chat.'}</p>`}`
+            : '<p class="muted" style="margin-top:14px">To add someone, ask a manager or the office.</p>'}`;
+      };
+      paint();
+      $('#ps-q', sheet).oninput = (e) => { q = e.target.value; paint(); };
+      list.onclick = async (e) => {
+        const b = e.target.closest('[data-add],[data-rm]');
+        if (!b) return;
+        if (b.dataset.rm && !confirm(`Remove ${b.dataset.name} from this chat?`)) return;
+        b.disabled = true;
+        try {
+          p = await api('POST', `/chats/${chatId}/people`, b.dataset.add ? { add: [b.dataset.add] } : { remove: [b.dataset.rm] });
+          $('#ps-err', sheet).textContent = '';
+          $('#ps-title', sheet).textContent = p.title;
+          paint();
+          toast(b.dataset.add ? 'Added' : 'Removed');
+          refreshThread();
+        } catch (ex) { b.disabled = false; err(ex); }
+      };
+      const rn = $('#ps-rn', sheet);
+      if (rn) rn.onsubmit = async (e) => {
+        e.preventDefault();
+        try { await api('PATCH', `/chats/${chatId}`, { title: $('#ps-t', sheet).value }); sheet.close(); toast('Renamed'); route(); } catch (ex) { err(ex); }
+      };
+      const lv = $('#ps-leave', sheet);
+      if (lv) lv.onclick = async () => {
+        if (!confirm('Leave this chat? Someone in it can add you back.')) return;
+        try { await api('DELETE', `/chats/${chatId}/members/${S.me.id}`); sheet.close(); location.hash = '#/messages'; } catch (ex) { err(ex); }
+      };
     });
   }
 

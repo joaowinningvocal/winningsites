@@ -35,11 +35,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (() => {
-  // Only documents we publish can be opened here: ?file=w9, or ?src=/docs/<name>.pdf (the originals of the waivers)
+  // Only documents we publish can be opened here: ?file=w9, ?src=/docs/<name>.pdf (the originals of the waivers),
+  // or a PDF sent in a chat (?src=/api/ranch/chat-media/<file>.pdf&title=<its name>; the server checks they're in that chat)
   const FILES = { w9: { url: '/docs/w9.pdf', title: 'Form W-9' } };
   const q = new URLSearchParams(location.search);
   const src = q.get('src') || '';
-  const doc = FILES[q.get('file')] || (/^\/docs\/[\w-]+\.pdf$/.test(src) ? { url: src, title: 'Original document' } : null);
+  const named = (q.get('title') || '').slice(0, 120);
+  const doc = FILES[q.get('file')] || (/^\/docs\/[\w-]+\.pdf$/.test(src) ? { url: src, title: 'Original document' }
+    : /^\/api\/ranch\/chat-media\/[\w-]+\.pdf$/.test(src) ? { url: src, title: named || 'Document', back: '/#/messages' } : null);
+  if (doc && doc.back) document.getElementById('close').href = doc.back;
   const pages = document.getElementById('pages');
   const close = document.getElementById('close');
   close.addEventListener('click', (e) => {

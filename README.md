@@ -76,6 +76,10 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 - **grupos**, que qualquer pessoa da equipe cria pelo "+ New" (podem incluir donos, e o criador ou um manager renomeia, adiciona e remove);
 - **mensagens diretas** entre pessoas da equipe.
 
+**Pessoas em cada chat** (botão **People** ou o nome do chat no topo): mostra quem está e, para managers, office, o Barn Management (no chat deles) e o criador de um grupo, **Add** e **Remove** em qualquer chat. No Workers e no Boarders a lista automática continua e quem foi adicionado ou removido à mão fica marcado; no chat de um dono dá pra incluir um co-owner ou um trainer (o dono nunca sai); adicionar alguém numa mensagem direta transforma ela em grupo. Cada mudança aparece no chat ("Jenna added …").
+
+**Mensagens** (igual ao Winning App): segurar a mensagem (ou botão direito) abre o menu com reações (❤️ 😆 😮 😢 😠 👍 🔥), Reply, Copy, Edit, Report, Block, Remove for everyone (a própria, ou qualquer uma para managers e office) e Remove for me. Dois toques = ❤️, arrastar pra direita = responder. Fotos, vídeos e documentos (PDF, Word, Excel, CSV, texto; PDF abre dentro do app), links clicáveis, separação por dia e "Seen by". A conversa busca as últimas 300 mensagens a cada 5 segundos e na hora que o celular volta pro app; a mensagem aparece com "Sending…" na hora e, se a internet cair, fica "Not sent · tap to try again" em vez de sumir.
+
 **Visitantes** veem na tela de login os atalhos para reservar, assinar waivers e conhecer o rancho.
 
 **Documentos no app:** a tela **Documents** mostra o que a pessoa já assinou (com a cópia), o que a ranch pediu e o que ainda pode assinar. A assinatura abre dentro do app, com nome, email, telefone e cavalo já preenchidos, e fica ligada à conta. Manager e office pedem assinatura de dois jeitos:
