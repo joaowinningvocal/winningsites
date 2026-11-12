@@ -415,6 +415,7 @@
     const job = d.job;
     if (job && job.running) inviteAllTimer = setTimeout(() => { if (document.body.contains(box)) inviteAllPanel(box); }, 2000);
     box.innerHTML = `<h2 style="margin:0 0 6px">Invite everyone to the app</h2>
+      <p class="muted">Sending through: <b>${esc(d.via.service)}</b>${d.via.from ? ` from <b>${esc(d.via.from)}</b>` : ''} <button class="btn btn--sm btn--ghost" type="button" data-email-test>Send a test to me</button></p><p data-test-out></p>
       ${d.email !== 'email' ? '<p class="inline-error">Email isn’t set up on the server yet, so invites can’t be sent from here.</p>' : ''}
       ${job ? `<p class="${job.running ? '' : 'ok-line'}">${job.running ? `Sending… ${job.sent + job.failed.length} of ${job.total}` : `Done: ${job.sent} sent${job.failed.length ? `, ${job.failed.length} didn’t send` : ''}.`} <span class="muted">(${esc(job.by)})</span></p>
         ${job.failed.length ? `<ul class="bulk-res">${job.failed.map((f) => `<li>${esc(f.name)} (${esc(f.email)}): <b class="inline-error">${esc(f.error)}</b></li>`).join('')}</ul>` : ''}` : ''}
@@ -432,6 +433,17 @@
     box.onclick = async (e) => {
       e.stopPropagation();
       if (e.target.closest('[data-close-all]')) { clearTimeout(inviteAllTimer); box.hidden = true; return; }
+      const t = e.target.closest('[data-email-test]');
+      if (t) {
+        const out = box.querySelector('[data-test-out]');
+        t.disabled = true; out.textContent = 'Sending…';
+        try {
+          const r = await api('POST', '/admin/email-test');
+          out.innerHTML = r.ok ? `<span class="ok-line">Sent to ${esc(r.to)}. Check the inbox and the spam folder.</span>` : `<b class="inline-error">Didn’t send: ${esc(r.error)}</b>`;
+        } catch (ex) { out.innerHTML = `<b class="inline-error">${esc(ex.message)}</b>`; }
+        t.disabled = false;
+        return;
+      }
       const b = e.target.closest('[data-send-all]');
       if (!b) return;
       const again = b.dataset.sendAll === '1', n = again ? d.people.length : pending.length;

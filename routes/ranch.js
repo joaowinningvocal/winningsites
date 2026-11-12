@@ -873,7 +873,20 @@ module.exports = function ranchRouter({ dataDir }) {
 
   staff.get('/invite-all', (_req, res) => {
     const row = (u) => ({ id: u.id, name: u.name, email: u.email, who: u.role === 'owner' ? 'owner' : POSITION_LABEL[u.position || 'office'], kind: inviteKind(u), sentAt: u.appInviteAt || null });
-    res.json({ email: mailer.configured(), stores: storeLinks(), people: inviteTargets().map(row).sort((a, b) => a.name.localeCompare(b.name)), job: jobOut() });
+    res.json({ email: mailer.configured(), via: mailer.via(), stores: storeLinks(), people: inviteTargets().map(row).sort((a, b) => a.name.localeCompare(b.name)), job: jobOut() });
+  });
+
+  // One test email to whoever is logged in, with the exact answer from the email service
+  staff.post('/email-test', async (req, res) => {
+    const v = mailer.via();
+    console.log(`[ranch] test email to ${req.user.email} through ${v.service}`);
+    const mail = await mailer.sendEmail({
+      to: req.user.email,
+      subject: 'Test from the Winning Ranch app',
+      html: mailer.layout({ title: 'It works', body: `<p>This test came through ${v.service}${v.from ? ` from ${v.from}` : ''}. If you got it, the invites go out the same way.</p>` }),
+    }).catch((e) => ({ ok: false, error: e.message }));
+    if (!mail.ok) console.log(`[ranch] test email failed: ${mail.error}`);
+    res.json({ ok: !!mail.ok, error: mail.ok ? undefined : mail.error, via: v, to: req.user.email });
   });
 
   staff.post('/invite-all', async (req, res) => {
@@ -892,7 +905,10 @@ module.exports = function ranchRouter({ dataDir }) {
       try {
         mail = inviteKind(u) === 'setup' ? await emailInvite(u, `${base}/#/invite/${auth.createInvite(u)}`, by) : await emailAppReady(u, base, by);
       } catch (e) { mail = { ok: false, error: e.message }; }
-      if (mail && mail.ok) { u.appInviteAt = now(); job.sent++; } else job.failed.push({ name: u.name, email: u.email, error: (mail && mail.error) || 'didn’t send' });
+      if (mail && mail.ok) { u.appInviteAt = now(); job.sent++; } else {
+        job.failed.push({ name: u.name, email: u.email, error: (mail && mail.error) || 'didn’t send' });
+        console.log(`[ranch] app invite to ${u.email} failed: ${(mail && mail.error) || 'didn’t send'}`);
+      }
       await store.save();
       await new Promise((r) => setTimeout(r, 1200));
     }
