@@ -833,6 +833,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const t = auth.createInvite(user);
     const inviteUrl = `${origin(req)}/#/invite/${t}`;
     const mail = b.sendEmail === false ? null : await emailInvite(user, inviteUrl, req.user);
+    if (mail && mail.ok) { user.appInviteAt = now(); await store.save(); }
     res.status(201).json({ user: auth.publicUser(user), inviteUrl, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
   });
 
@@ -843,6 +844,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const t = auth.createInvite(user);
     const inviteUrl = `${origin(req)}/#/invite/${t}`;
     const mail = req.body && req.body.email ? await emailInvite(user, inviteUrl, req.user) : null;
+    if (mail && mail.ok) { user.appInviteAt = now(); await store.save(); }
     res.json({ inviteUrl, emailed: !!(mail && mail.ok), emailError: mail && !mail.ok ? mail.error : undefined });
   });
 
@@ -1134,6 +1136,7 @@ module.exports = function ranchRouter({ dataDir }) {
       db.users.push(user);
       const t = auth.createInvite(user);
       const mail = await emailInvite(user, `${origin(req)}/#/invite/${t}`, req.user);
+      if (mail.ok) user.appInviteAt = now(); // "Invite everyone" won't email them twice
       results.push({ line, name: user.name, role: user.role, position, emailed: mail.ok, emailError: mail.ok ? undefined : mail.error, inviteUrl: `${origin(req)}/#/invite/${t}` });
     }
     await store.save();
