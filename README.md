@@ -45,6 +45,13 @@ O domínio está registrado no **Wix** (renova em julho/2027) e o DNS fica no **
    - `BOOKING_WEBHOOK_URL`, `CONTACT_WEBHOOK_URL` e `REPORT_WEBHOOK_URL`: cópias de reservas, contatos, waivers e relatórios para o integrator.io ou o Zapier.
    - `SEED_DEMO=1`: cria o dono de teste `demo@winningranch.com` / `demo-ranch`. Tire antes de ir ao ar.
 7. A variável `REVIEW_PASSWORD` não é mais usada e pode ser apagada.
+8. **API de operações (pro Claude, como a debug API do Winning App):** `OPS_API_KEY`, uma chave de 24+ caracteres. A cópia local fica em `~/.winningranch-ops-key` e o `tools/ranch-ops.mjs` lê de lá sem imprimir. Uma chamada com o header `X-Ops-Key` age como a conta master (ou como o email em `OPS_ACT_AS`). Com isso valem todas as rotas do dashboard e dos chats, além de `/ops/ping` (quem, email, versão), `/ops/people` (último login e convites) e `/ops/logs` (últimas linhas do log, com links escondidos). Cada chamada fica no log e a resposta nunca traz senha, token ou link de convite. Sem a variável, a chave não faz nada e `/ops` dá 404. Pra trocar a chave, gere outra nos dois lugares.
+
+   ```
+   node tools/ranch-ops.mjs /ops/ping
+   node tools/ranch-ops.mjs POST /admin/users/bulk '{"lines":"Nome, email, telefone, ranch hand"}'
+   ```
+   No Git Bash, use `MSYS_NO_PATHCONV=1` (senão `/admin/...` vira caminho do Windows) ou escreva o caminho sem a barra inicial.
 
 ## O app (`/`)
 

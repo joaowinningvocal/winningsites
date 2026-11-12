@@ -20,6 +20,7 @@ const BOOKING_STATUSES = ['pending', 'confirmed', 'declined', 'cancelled', 'comp
 const HOLDS = new Set(['pending', 'confirmed']); // these block the stall
 
 module.exports = function ranchRouter({ dataDir }) {
+  const STARTED_AT = new Date().toISOString();
   const store = createStore(path.join(dataDir, 'ranch.json'), {
     stalls: [],
     settings: { parkingNightly: null, monthlyMin: 750, monthlyMax: 1000 },
@@ -251,6 +252,61 @@ module.exports = function ranchRouter({ dataDir }) {
   // ---------------------------------------------------------- router
   const r = express.Router();
   r.use(auth.loadUser);
+
+  // ---------------------------------------------------------- ops API (for Claude, like the Winning App's debug API)
+  // A request with the header X-Ops-Key = the Railway variable OPS_API_KEY (24+ characters) runs as the acting account:
+  // OPS_ACT_AS (an email) or else the master account. So every dashboard and chat route works with the key, plus the
+  // /ops routes below. Without the variable the key does nothing and /ops is 404. Wrong keys: 20 per 10 minutes.
+  // Every call is logged; passwords, password hashes and session or invite tokens are never returned.
+  const OPS_KEY = (process.env.OPS_API_KEY || '').trim();
+  let opsFails = [];
+  const opsActor = () => {
+    const want = (process.env.OPS_ACT_AS || '').trim().toLowerCase();
+    const live = (u) => u.active !== false && u.role === 'staff';
+    return (want && db.users.find((u) => live(u) && u.email === want)) || db.users.find((u) => live(u) && u.master)
+      || db.users.find((u) => live(u) && (u.position || 'office') === 'office');
+  };
+  r.use((req, res, next) => {
+    const got = req.headers['x-ops-key'];
+    const opsPath = req.path.startsWith('/ops/');
+    if (!got && !opsPath) return next();
+    if (OPS_KEY.length < 24) return res.status(404).json({ error: 'Not found.' });
+    const t = Date.now();
+    opsFails = opsFails.filter((x) => t - x < 10 * 60e3);
+    if (opsFails.length >= 20) return res.status(429).json({ error: 'Too many wrong keys. Wait 10 minutes.' });
+    const a = crypto.createHash('sha256').update(String(got || '')).digest(), b = crypto.createHash('sha256').update(OPS_KEY).digest();
+    if (!got || !crypto.timingSafeEqual(a, b)) { opsFails.push(t); console.log(`[ops] wrong key (${req.method} ${req.path})`); return res.status(403).json({ error: 'Wrong key.' }); }
+    const actor = opsActor();
+    if (!actor) return res.status(503).json({ error: 'No staff account to act as. Set OPS_ACT_AS on Railway.' });
+    req.user = actor;
+    req.ops = true;
+    // Login links and anything secret stay out of what the key gets back
+    const clean = (v, d = 0) => {
+      if (!v || typeof v !== 'object' || d > 8) return v;
+      if (Array.isArray(v)) return v.map((x) => clean(x, d + 1));
+      const o = {};
+      for (const [k, x] of Object.entries(v)) o[k] = /inviteUrl|token|password|hash|secret/i.test(k) && typeof x !== 'boolean' ? (x ? '(hidden)' : x) : clean(x, d + 1);
+      return o;
+    };
+    const json = res.json.bind(res);
+    res.json = (b) => json(clean(b));
+    console.log(`[ops] ${req.method} ${req.path} as ${actor.name}`);
+    next();
+  });
+  const opsBrief = (u) => ({
+    ...auth.publicUser(u), createdAt: u.createdAt || null, lastLoginAt: u.lastLoginAt || null, appInviteAt: u.appInviteAt || null,
+    setupLinkAt: u.setupLinkAt || null, demo: !!u.demo,
+  });
+  r.get('/ops/ping', (req, res) => res.json({
+    ok: true, actingAs: { id: req.user.id, name: req.user.name, email: req.user.email },
+    email: { configured: mailer.configured(), ...mailer.via() }, people: db.users.filter((u) => !u.demo).length,
+    commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null, startedAt: STARTED_AT,
+  }));
+  r.get('/ops/logs', (req, res) => res.json({ lines: require('../lib/oplog').recent({ limit: Number(req.query.limit) || 200, q: req.query.q }) }));
+  r.get('/ops/people', (req, res) => {
+    const q = String(req.query.q || '').toLowerCase();
+    res.json({ people: db.users.filter((u) => !q || `${u.name} ${u.email} ${u.phone || ''}`.toLowerCase().includes(q)).map(opsBrief) });
+  });
 
   // Writes must come from this site (cookies are SameSite=Lax too)
   r.use((req, res, next) => {
@@ -496,6 +552,7 @@ module.exports = function ranchRouter({ dataDir }) {
     // No password yet: email a link to create one (never set it here, or whoever knows the email could take the account)
     if (user && !user.password) return passwordSetupLink(req, res, user);
     if (!user || !auth.verifyPassword(password, user.password)) return res.status(401).json({ error: 'That email and password don’t match.' });
+    user.lastLoginAt = now(); // saved with the session
     auth.startSession(req, res, user);
     res.json({ user: auth.publicUser(user) });
   });
@@ -533,6 +590,7 @@ module.exports = function ranchRouter({ dataDir }) {
     found.user.mustChangePassword = false;
     auth.useInvite(found.inv);
     await store.save();
+    found.user.lastLoginAt = now();
     auth.startSession(req, res, found.user);
     res.json({ user: auth.publicUser(found.user) });
   });

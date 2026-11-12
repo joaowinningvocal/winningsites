@@ -5,6 +5,7 @@
    /api/ranch/*      everything the app, the website and the dashboard use (routes/)
    Data lives in DATA_DIR (ranch.json + uploads/). On Railway, mount a Volume at /data
    and set DATA_DIR=/data so nothing is lost on redeploys. */
+require('./lib/oplog').install(); // the last log lines, for the ops API
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
