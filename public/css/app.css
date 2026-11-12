@@ -490,3 +490,6 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .sched-dialog__x button { border: 0; background: none; font-size: 1.6rem; cursor: pointer; color: var(--ink); }
 .sched-dialog .field input { width: 100%; }
 @media (max-width: 520px) { .sched-grid { grid-template-columns: 70px 1fr 1fr; gap: 4px; } .sched-chip { font-size: .85rem; padding: 5px 7px; } }
+.schedule .sched-slot:not(.sched-palette):not(.is-past) { cursor: pointer; }
+
+.care-notes { white-space: pre-wrap; }

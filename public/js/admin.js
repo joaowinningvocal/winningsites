@@ -240,7 +240,7 @@
         <div class="field"><label>Owner&rsquo;s name</label><input name="ownerName" value="${esc(h.hasAccount ? '' : h.ownerName || '')}" placeholder="When they don&rsquo;t have the app yet"></div>
         <div class="field"><label>Breed</label><input name="breed" value="${esc(h.breed || '')}"></div>
         <div class="field"><label>Arrived on</label><input name="arrivedOn" type="date" value="${esc(h.arrivedOn || new Date().toISOString().slice(0, 10))}"></div>
-        <div class="field full"><label>Team notes (owners don&rsquo;t see these)</label><textarea name="notes" rows="2">${esc(h.notes || '')}</textarea></div>
+        <div class="field full"><label>Feeding and care notes (the team sees these; owners don&rsquo;t)</label><textarea name="notes" rows="3" placeholder="AM: 2 flakes Bermuda + soaked cubes. PM: alfalfa. Supplements in his bin.">${esc(h.notes || '')}</textarea></div>
         <p class="inline-error full" data-err></p>
         <div class="form-actions full">
           <button class="btn btn--red btn--sm" type="submit">${h.id ? 'Save' : 'Add horse'}</button>
@@ -256,7 +256,8 @@
         <div class="card__top"><h3>${esc(h.name)}</h3><span class="muted">${esc(h.stallName || 'No stall')}</span></div>
         <dl>${h.stay ? `<dt>Stay</dt><dd>${esc(stayText(h.stay))} <a class="textlink" href="#/board">(${esc(h.stay.ref)})</a></dd>` : ''}
           <dt>Owner</dt><dd>${esc(h.ownerName || 'None')}${h.ownerName && !h.hasAccount ? ' <small class="muted">(no app account yet)</small>' : ''}</dd>
-          <dt>Updates</dt><dd>${h.updates}</dd>${h.breed ? `<dt>Breed</dt><dd>${esc(h.breed)}</dd>` : ''}</dl>
+          <dt>Updates</dt><dd>${h.updates}</dd>${h.breed ? `<dt>Breed</dt><dd>${esc(h.breed)}</dd>` : ''}
+          ${h.notes ? `<dt>Feeding &amp; care</dt><dd class="care-notes">${esc(h.notes)}</dd>` : ''}</dl>
         <div class="btn-row"><a class="btn btn--sm btn--red" href="#/post" data-post="${h.id}">Post update</a><button class="btn btn--sm btn--ghost" data-edit="${h.id}">Edit</button></div>
       </article>`;
     const group = (title, list) => (list.length ? `<h2 style="margin-top:32px">${title} <small class="muted">(${list.length})</small></h2><div class="cards">${list.map(card).join('')}</div>` : '');

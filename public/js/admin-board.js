@@ -247,6 +247,7 @@ window.WRBoard = (() => {
         ${x.name ? `<dt>Owner</dt><dd>${esc(x.name)}</dd>` : ''}
         ${x.phones.length ? `<dt>Phone${x.phones.length > 1 ? 's' : ''}</dt><dd>${x.phones.map((p) => `<a href="tel:${esc(p)}">${esc(p)}</a>`).join('<br>')}</dd>` : ''}
         ${x.notes ? `<dt>Notes</dt><dd>${esc(x.notes)}</dd>` : ''}
+        ${(x.horseIds || []).map((hid) => d.horses.find((h) => h.id === hid)).filter((h) => h && h.notes).map((h) => `<dt>Feeding &amp; care${x.horseIds.length > 1 ? ` (${esc(h.name)})` : ''}</dt><dd class="care-notes">${esc(h.notes)}</dd>`).join('')}
         <dt>Added by</dt><dd>${esc(x.source === 'web' ? 'Website request' : x.source === 'ai' ? `Stall assistant, for ${x.createdBy}` : x.createdBy || 'The team')}</dd></dl>
       ${x.source === 'web' ? '<p class="muted">From the website. Change it in <a class="textlink" href="#/bookings">Bookings</a>.</p>' : `<div class="btn-row">
         <button class="btn btn--sm btn--red" type="button" data-edit="${x.id}">Edit</button>
@@ -255,7 +256,7 @@ window.WRBoard = (() => {
     </article>`;
     dialog(`<h2>${esc(label(s))}${s.ponyOnly ? ' <small class="muted">ponies only</small>' : ''}</h2>
       <p class="muted">${esc(fmtDay(day))}: ${esc(c.kind === 'free' ? 'free' : c.kind === 'horse' ? `${c.horse.name} (Horses tab)` : whoIn(c.stay, id))}${s.size ? ` &middot; ${esc(s.size)}` : ''}</p>
-      ${horse ? `<p class="flag">${esc(horse.name)}${horse.owner ? ` (${esc(horse.owner)})` : ''} is assigned to this stall in <a class="textlink" href="#/horses">Horses</a>, so it stays taken until they leave.</p>` : ''}
+      ${horse ? `<p class="flag">${esc(horse.name)}${horse.owner ? ` (${esc(horse.owner)})` : ''} is assigned to this stall in <a class="textlink" href="#/horses">Horses</a>, so it stays taken until they leave.</p>${horse.notes ? `<p><b>Feeding &amp; care:</b> <span class="care-notes">${esc(horse.notes)}</span></p>` : ''}` : ''}
       ${stays.length ? stays.map(card).join('') : '<p>Nothing booked here in the next two weeks.</p>'}
       ${c.kind === 'free' || c.kind === 'ours' || (c.stay && c.stay.to) ? `<div class="btn-row" style="margin-top:14px"><button class="btn btn--red" type="button" data-add>Add a horse to this stall</button></div>` : ''}
       <p class="inline-error" data-err></p>`, (dlg) => {
@@ -406,7 +407,17 @@ window.WRBoard = (() => {
 
   // ---------------------------------------------------------------- drag a horse to another stall
   // Phones: press and hold ~0.4 s, then drag (moving the finger sooner just scrolls). Mouse: drag right away.
-  const drag = { id: null, tile: null, pointerId: null, startX: 0, startY: 0, active: false, over: null, ghost: null, timer: 0, justDropped: false };
+  const drag = { id: null, tile: null, pointerId: null, startX: 0, startY: 0, active: false, over: null, ghost: null, timer: 0, justDropped: false, x: 0, y: 0, scroller: 0 };
+  // Near the top or bottom edge the page scrolls by itself, so a stall off screen can still be reached
+  function edgeScroll() {
+    clearInterval(drag.scroller);
+    drag.scroller = setInterval(() => {
+      if (!drag.active) return clearInterval(drag.scroller);
+      const edge = 80, h = window.innerHeight;
+      const dy = drag.y < edge ? -Math.ceil((edge - drag.y) / 4) : drag.y > h - edge ? Math.ceil((drag.y - (h - edge)) / 4) : 0;
+      if (dy) { window.scrollBy(0, dy); follow(drag.x, drag.y); }
+    }, 16);
+  }
   const draggable = (tile) => tile && !tile.disabled && /\bis-(monthly|nightly|ours|horse)\b/.test(tile.className);
 
   function lift(x, y) {
@@ -420,8 +431,10 @@ window.WRBoard = (() => {
     document.body.appendChild(drag.ghost);
     if (navigator.vibrate) navigator.vibrate(12);
     follow(x, y);
+    edgeScroll();
   }
   function follow(x, y) {
+    drag.x = x; drag.y = y;
     drag.ghost.style.transform = `translate(${x - drag.ghost.offsetWidth / 2}px, ${y - 30}px)`;
     const hit = document.elementFromPoint(x, y);
     const t = hit && hit.closest('.stall-tile[data-stall]');
@@ -434,6 +447,7 @@ window.WRBoard = (() => {
   }
   function endDrag() {
     clearTimeout(drag.timer);
+    clearInterval(drag.scroller);
     if (drag.ghost) drag.ghost.remove();
     if (drag.tile) drag.tile.classList.remove('is-lifted');
     if (drag.over) drag.over.classList.remove('is-target');

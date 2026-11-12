@@ -351,6 +351,7 @@
     let lastDay = '';
     const day = (iso) => new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
     view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a><h1 style="font-size:2rem">${esc(horse.name)}</h1><p class="muted">${esc([horse.breed, horse.stall].filter(Boolean).join(', '))}</p>
+      ${horse.careNotes ? `<div class="care-box"><b>Feeding &amp; care</b><p>${esc(horse.careNotes)}</p></div>` : ''}
       ${updates.length ? updates.map((u) => {
         const d = day(u.createdAt); const head = d !== lastDay ? `<p class="day">${esc(d)}</p>` : ''; lastDay = d;
         const imgs = u.media.filter((m) => m.type === 'image'), vids = u.media.filter((m) => m.type === 'video');
@@ -369,11 +370,14 @@
   const QUICK_REACTIONS = ['❤️', '😆', '😮', '😢', '😠', '👍', '🔥'];
   const URL_RX = /(?:https?:\/\/|www\.)[^\s<>"']+[^\s<>"'.,;:!?)\]]/gi;
   const fullUrl = (u) => (/^https?:\/\//i.test(u) ? u : 'https://' + u);
-  function richText(text) {
+  // @mentions the server recognized show highlighted (@everyone, @barnmanager, @Name)
+  const withMentions = (html, mentions) => (!mentions || !mentions.length ? html
+    : html.replace(/(^|[^\w@])@([A-Za-z][A-Za-z0-9]*)/g, (all, pre, h) => (mentions.includes(h.toLowerCase()) ? `${pre}<span class="msg-mention">@${h}</span>` : all)));
+  function richText(text, mentions) {
     const out = []; let last = 0;
     String(text).replace(URL_RX, (mm, at) => { out.push([0, text.slice(last, at)]); out.push([1, mm]); last = at + mm.length; return mm; });
     out.push([0, String(text).slice(last)]);
-    return out.map(([isUrl, t]) => (isUrl ? `<a class="msg-link" href="${esc(fullUrl(t))}" target="_blank" rel="noopener noreferrer">${esc(t.length > 60 ? t.slice(0, 57) + '…' : t)}</a>` : esc(t))).join('');
+    return out.map(([isUrl, t]) => (isUrl ? `<a class="msg-link" href="${esc(fullUrl(t))}" target="_blank" rel="noopener noreferrer">${esc(t.length > 60 ? t.slice(0, 57) + '…' : t)}</a>` : withMentions(esc(t), mentions))).join('');
   }
   const dayKey = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
   function dayLabel(iso) {
@@ -399,7 +403,7 @@
     let chats, q = '';
     try { ({ chats } = await api('GET', '/chats')); } catch (ex) { return loadFailed(ex, messagesView); }
     const card = (c) => `<a class="chat-card${c.type === 'channel' ? ' chat-card--main' : ''}${c.unread ? ' has-new' : ''}" href="#/chat/${c.id}">
-        <span class="chat-card__top"><b>${esc(c.title)}</b>${c.unread ? `<span class="new-pill">${c.unread} new</span>` : ''}<span class="chat-card__ago">${c.last ? esc(ago(c.last.at)) : ''}</span></span>
+        <span class="chat-card__top"><b>${esc(c.title)}</b>${c.mentioned ? '<span class="new-pill at-pill">@you</span>' : ''}${c.unread ? `<span class="new-pill">${c.unread} new</span>` : ''}<span class="chat-card__ago">${c.last ? esc(ago(c.last.at)) : ''}</span></span>
         <span class="chat-card__last">${c.last ? `${c.last.by ? esc(c.last.by) + ': ' : ''}${esc(c.last.text)}` : esc(c.about || 'No messages yet')}</span></a>`;
     const paint = () => {
       const list = $('#chat-list');
@@ -437,7 +441,7 @@
         ${chat.type === 'owner' && isStaff() && pos() !== 'hand' ? '<button class="req-btn" type="button" id="req-sign">Request signature</button>' : ''}</div>
       <p class="thread__note" id="net" hidden>Reconnecting…</p>
       <div class="thread__msgs" id="msgs"></div><div id="pend"></div></div>
-      <div class="composer"><div class="mode-bar" id="mode-bar" hidden></div><p class="pending" id="pending" hidden></p><form id="send" novalidate>
+      <div class="composer"><div class="mention-box" id="mention-box" role="listbox" aria-label="Mention someone" hidden></div><div class="mode-bar" id="mode-bar" hidden></div><p class="pending" id="pending" hidden></p><form id="send" novalidate>
         <button class="attach" type="button" id="attach" aria-label="Add photos, videos or files">${ic('camera')}</button>
         <input type="file" id="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" multiple hidden>
         <textarea id="text" rows="1" placeholder="Message" aria-label="Message" autocapitalize="sentences" enterkeyhint="send"></textarea>
@@ -480,7 +484,7 @@
         const videos = vids.map((x) => `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>`).join('');
         const docs = files.map((x) => `<a class="msg-file" href="${esc(fileHref(x))}"${/\.pdf$/i.test(x.name || '') ? '' : ' target="_blank" rel="noopener"'}><span class="fi" aria-hidden="true">📄</span><span class="fn"><b>${esc(x.name)}</b><small>${esc(fmtSize(x.size))} · Tap to open</small></span></a>`).join('');
         const reacts = aggregate(m.reactions);
-        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble">${from}${q}${gallery}${videos}${docs}${m.text ? `<div class="msg-text">${richText(m.text)}</div>` : ''}${when}</div>
+        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble${m.mentionsMe ? ' mentions-me' : ''}">${from}${q}${gallery}${videos}${docs}${m.text ? `<div class="msg-text">${richText(m.text, m.mentions)}</div>` : ''}${when}</div>
           ${reacts ? `<button type="button" class="msg-reacts" aria-label="Reactions: ${esc(reacts.names)}">${reacts.html}</button>` : ''}</div>`;
         const rb = row.querySelector('.msg-reacts');
         if (rb) rb.onclick = () => toast(reacts.names.replace(/\n/g, ' · '));
@@ -490,7 +494,7 @@
       press(row.querySelector('.msg-bubble'), m);
       return row;
     }
-    const sigOf = (m) => JSON.stringify([m.editedAt || '', m.deleted ? 1 : 0, (m.reactions || []).map((x) => x.uid + x.e).join(), m.text || '', (m.docs || []).map((x) => x.status).join(), m.media.length]);
+    const sigOf = (m) => JSON.stringify([(m.mentions || []).join(), m.editedAt || '', m.deleted ? 1 : 0, (m.reactions || []).map((x) => x.uid + x.e).join(), m.text || '', (m.docs || []).map((x) => x.status).join(), m.media.length]);
     const dayBlock = (iso) => {
       const b = document.createElement('div');
       b.className = 'msg-dayblock'; b.dataset.day = dayKey(iso);
@@ -627,6 +631,37 @@
     }
     const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
     ta.addEventListener('input', grow);
+
+    // ---- @mentions: typing @ suggests the people in this chat, @everyone and @barnmanager
+    let handles = null;
+    const mbox = $('#mention-box');
+    const hideMentions = () => { mbox.hidden = true; mbox.innerHTML = ''; };
+    async function suggest() {
+      const upto = ta.value.slice(0, ta.selectionStart);
+      const mm = upto.match(/(^|[^\w@])@([A-Za-z0-9]*)$/);
+      if (!mm) return hideMentions();
+      if (!handles) { try { handles = (await api('GET', `/chats/${id}/mentions`)).people; } catch (_) { handles = []; } }
+      if (S.thread !== T) return;
+      const q = mm[2].toLowerCase();
+      const list = handles.filter((h) => !q || h.handle.toLowerCase().startsWith(q) || h.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))).slice(0, 6);
+      if (!list.length) return hideMentions();
+      mbox.innerHTML = list.map((h) => `<button type="button" role="option" data-handle="${esc(h.handle)}"><b>@${esc(h.handle)}</b><span>${esc(h.name)}${h.tag ? ` · ${esc(h.tag)}` : ''}</span></button>`).join('');
+      mbox.hidden = false;
+    }
+    ta.addEventListener('input', suggest);
+    ta.addEventListener('blur', () => setTimeout(hideMentions, 200));
+    mbox.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the keyboard up
+    mbox.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-handle]');
+      if (!b) return;
+      const pos = ta.selectionStart, upto = ta.value.slice(0, pos);
+      const start = upto.lastIndexOf('@');
+      ta.value = ta.value.slice(0, start) + '@' + b.dataset.handle + ' ' + ta.value.slice(pos);
+      const caret = start + b.dataset.handle.length + 2;
+      ta.setSelectionRange(caret, caret);
+      ta.focus();
+      hideMentions(); grow();
+    });
     async function send() {
       const text = ta.value.trim();
       if (T.mode && T.mode.kind === 'edit') {
@@ -637,7 +672,7 @@
       if (!text && !S.files.length) return;
       const job = { key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, files: S.files.slice(), replyTo: T.mode && T.mode.kind === 'reply' ? T.mode.m.id : '', state: 'sending' };
       T.queue.push(job);
-      ta.value = ''; grow(); S.files = []; $('#file').value = ''; $('#pending').hidden = true; setMode(null);
+      ta.value = ''; grow(); hideMentions(); S.files = []; $('#file').value = ''; $('#pending').hidden = true; setMode(null);
       T.pin = true; renderPending(); stick();
       deliver(job);
     }
@@ -1005,6 +1040,7 @@
   }
 
   // ------------------------------------------------------------------ post an update (team)
+  const QUICK_TAGS = ['✅ Fed', '💧 Watered', '🧹 Stall cleaned', '🧥 Blanket on', '🪰 Fly mask on', '🏇 Turned out'];
   async function postSheet() {
     const { horses } = await api('GET', '/admin/horses');
     const active = horses.filter((x) => x.active !== false).sort((a, b) => a.name.localeCompare(b.name));
@@ -1012,12 +1048,24 @@
     const lastId = localStorage.getItem('wr-last-horse');
     openSheet(`<h2>Post an update</h2><form id="post" novalidate>
       <div class="field"><label for="p-h">Horse</label><select id="p-h">${active.map((x) => `<option value="${x.id}"${x.id === lastId ? ' selected' : ''}>${esc(x.name)}${x.stallName ? `, ${esc(x.stallName)}` : ''}</option>`).join('')}</select></div>
+      <div class="quick-tags" role="group" aria-label="Quick notes">${QUICK_TAGS.map((t) => `<button type="button" class="qt" data-tag="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('')}</div>
       <div class="field"><label for="p-c">What&rsquo;s new?</label><textarea id="p-c" rows="3" placeholder="Ate all his breakfast, then an hour in the round pen."></textarea></div>
       <input type="file" id="p-f" accept="image/*,video/*" multiple hidden>
       <button class="btn" type="button" id="p-add">${ic('camera')}&nbsp; Add photos or videos</button>
       <div class="thumbs" id="p-t"></div><div class="bar" id="p-bar" hidden><i></i></div>
       <button class="btn btn--red btn--big" type="submit" style="margin-top:10px">Post to the owner</button><p class="err" id="p-err"></p></form>`, (sheet) => {
       let files = [];
+      // Fed, watered…: one tap adds the line to the note (tap again to take it out), then add a photo of the horse or stall
+      const cap = $('#p-c', sheet);
+      sheet.querySelectorAll('[data-tag]').forEach((b) => { b.onclick = () => {
+        const tag = b.dataset.tag;
+        const on = b.getAttribute('aria-pressed') !== 'true';
+        b.setAttribute('aria-pressed', String(on));
+        // the picked ones first, in the order of the buttons, then whatever they typed
+        const typed = cap.value.split(/\r?\n/).filter((l) => !QUICK_TAGS.includes(l.trim()));
+        const picked = QUICK_TAGS.filter((t) => sheet.querySelector(`[data-tag="${t}"]`).getAttribute('aria-pressed') === 'true');
+        cap.value = [...picked, ...typed].join(String.fromCharCode(10)).trim();
+      }; });
       $('#p-add', sheet).onclick = () => $('#p-f', sheet).click();
       $('#p-f', sheet).onchange = (e) => { files = files.concat([...e.target.files]); $('#p-t', sheet).innerHTML = files.map((f) => f.type.startsWith('image') ? `<img src="${URL.createObjectURL(f)}" alt="">` : '<span class="muted">Video</span>').join(''); };
       $('#post', sheet).onsubmit = async (e) => {

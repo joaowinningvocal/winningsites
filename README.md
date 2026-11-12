@@ -87,6 +87,8 @@ O app segue o modelo do Winning App: top bar com sino e chip da função, Home c
 
 **Mensagens** (igual ao Winning App): segurar a mensagem (ou botão direito) abre o menu com reações (❤️ 😆 😮 😢 😠 👍 🔥), Reply, Copy, Edit, Report, Block, Remove for everyone (a própria, ou qualquer uma para managers e office) e Remove for me. Dois toques = ❤️, arrastar pra direita = responder. Fotos, vídeos e documentos (PDF, Word, Excel, CSV, texto; PDF abre dentro do app), links clicáveis, separação por dia e "Seen by". A conversa busca as últimas 300 mensagens a cada 5 segundos e na hora que o celular volta pro app; a mensagem aparece com "Sending…" na hora e, se a internet cair, fica "Not sent · tap to try again" em vez de sumir.
 
+**Menções:** ao digitar `@` aparecem sugestões com as pessoas do chat (`@Primeironome`, ou nome e sobrenome quando dois têm o mesmo primeiro nome), `@everyone` (todo mundo do chat) e `@barnmanager` (quem tem a posição ranch manager, hoje a Gabi). A menção fica destacada, a mensagem que te menciona ganha borda vermelha e o chat mostra "@you" na lista até você abrir. Ainda não tem notificação push.
+
 **Visitantes** veem na tela de login os atalhos para reservar, assinar waivers e conhecer o rancho.
 
 **Documentos no app:** a tela **Documents** mostra o que a pessoa já assinou (com a cópia), o que a ranch pediu e o que ainda pode assinar. A assinatura abre dentro do app, com nome, email, telefone e cavalo já preenchidos, e fica ligada à conta. Manager e office pedem assinatura de dois jeitos:
@@ -119,6 +121,8 @@ Ranch hands só veem **My shift**, **Post update** e **Schedule**.
 
 ## Escala (Schedule)
 
+Managers e office também podem **tocar num turno** e marcar quem trabalha numa lista, sem arrastar. Ao arrastar, a tela rola sozinha perto da borda, então dá pra chegar no domingo pelo celular. O Stall board rola do mesmo jeito.
+
 Em `/admin/#/schedule` (e no atalho **Schedule** da Home do app).
 
 - **Semana padrão (Usual week):** manager e office montam uma vez quem trabalha no AM e no PM de cada dia da semana. Toda semana nova começa dela.
@@ -127,6 +131,8 @@ Em `/admin/#/schedule` (e no atalho **Schedule** da Home do app).
 - Horários do AM e do PM em **Shift times** (padrão 6:00 às 12:00 e 12:00 às 18:00). A escala não trava o ponto: quem não está escalado ainda consegue bater o ponto.
 
 ## Ponto e relatórios
+
+**Alerta de 6 horas:** quem fica 6 horas no relógio sem bater a saída gera, uma vez por turno, um aviso no chat Barn Management e um email para os endereços do relatório de horas (`alertHours` em `settings.timeclock` muda as horas).
 
 Configurar uma vez em **Hours → Time clock settings**:
 1. Em pé no celeiro, toque **Use where I am now** (raio padrão de 150 m).

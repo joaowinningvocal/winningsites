@@ -296,6 +296,29 @@ module.exports = function shifts({ staff, db, store, newId, now, str }) {
       store.save();
     }
   }
-  const timer = setInterval(() => tick().catch((e) => console.error('[reports]', e)), 60e3);
+  // Randy (Nov 2026): Jenna hears when someone has been clocked in 6 hours without clocking out.
+  // Once per shift: a note in the Barn Management chat and an email to the hours report addresses.
+  async function longShifts() {
+    const hours = Number(tc().alertHours) || 6;
+    const t = Date.now();
+    for (const s of live()) {
+      if (s.out || !s.in || !s.in.at || s.longAlertAt) continue;
+      if (t - Date.parse(s.in.at) < hours * 3600e3) continue;
+      s.longAlertAt = now();
+      const u = db.users.find((x) => x.id === s.userId);
+      const who = (u && u.name) || 'Someone';
+      const text = `⏰ ${who} has been clocked in for ${hours} hours without clocking out (since ${H.fmtTime(s.in.at)}).`;
+      const mgmt = (db.chats || []).find((c) => c.type === 'channel' && c.key === 'management');
+      if (mgmt) db.messages.push({ id: newId(), chatId: mgmt.id, userId: null, kind: 'system', text, media: [], at: now() });
+      console.log('[shifts]', text);
+      if (tc().reportTo && configured() === 'email') {
+        const r = await sendEmail({ to: tc().reportTo, subject: `${who}: ${hours} hours on the clock`,
+          html: `<div style="font-family:Arial,sans-serif;font-size:15px"><p>${text.replace(/</g, '&lt;')}</p><p>If they forgot to clock out, fix the shift in Dashboard → Hours.</p></div>` }).catch((e) => ({ ok: false, error: e.message }));
+        if (!r.ok) console.log('[shifts] long-shift email failed:', r.error);
+      }
+      store.save();
+    }
+  }
+  const timer = setInterval(() => { tick().catch((e) => console.error('[reports]', e)); longShifts().catch((e) => console.error('[shifts]', e)); }, 60e3);
   timer.unref();
 };

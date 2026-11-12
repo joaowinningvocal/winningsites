@@ -347,3 +347,22 @@ b.ok, .ok { color: #1f8a4c; }
 @media (prefers-reduced-motion: reduce) { .msg-row .msg-bubble, #msgMenu, .msg-flash .msg-bubble { transition: none; animation: none; } }
 .composer textarea { scrollbar-width: none; }
 .composer textarea::-webkit-scrollbar { display: none; }
+
+/* @mentions */
+.msg-mention { font-weight: 700; background: rgba(204,35,42,.12); border-radius: 5px; padding: 0 3px; }
+.msg-row.mine .msg-mention { background: rgba(255,255,255,.22); color: #fff; }
+.msg-row .msg-bubble.mentions-me { box-shadow: 0 0 0 2px var(--red); }
+.at-pill { background: var(--ink); }
+.mention-box { max-width: 640px; margin: 0 auto 6px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+.mention-box button { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; padding: 10px 14px; }
+.mention-box button:last-child { border-bottom: 0; }
+.mention-box button span { color: var(--ink-soft); font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mention-box button:hover { background: var(--paper); }
+
+/* Post an update: quick notes (fed, watered…) */
+.quick-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.quick-tags .qt { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 8px 12px; font-weight: 600; font-size: .9rem; }
+.quick-tags .qt[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.care-box { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 12px; padding: 10px 14px; margin: 10px 0 6px; }
+.care-box p { white-space: pre-wrap; margin-top: 4px; }

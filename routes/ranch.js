@@ -619,7 +619,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const stall = stallById(boardApi.stallOfHorse(h));
     const ups = db.updates.filter((u) => u.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     res.json({
-      horse: { id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '' },
+      horse: { id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '', ...(req.user.role === 'staff' && h.notes ? { careNotes: h.notes } : {}) }, // the team's feeding notes; owners don't see them
       updates: ups.map((u) => ({ id: u.id, caption: u.caption, authorName: u.authorName, createdAt: u.createdAt, media: u.media.map(mediaOut) })),
     });
   });
@@ -1119,7 +1119,7 @@ module.exports = function ranchRouter({ dataDir }) {
     const next = instructorValues();
     for (const f of INSTRUCTOR_FIELDS) {
       if (!(f.key in b)) continue;
-      const v = str(b[f.key], 160);
+      const v = str(b[f.key], f.key === 'iLimits' ? 400 : 160);
       if (f.options && v && !f.options.includes(v)) return res.status(400).json({ error: `Pick ${f.options.join(' or ')} for “${f.label}”.` });
       if (f.key === 'iEmail' && v && !validEmail(v)) return res.status(400).json({ error: 'Check the instructor’s email.' });
       next[f.key] = v;

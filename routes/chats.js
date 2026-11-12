@@ -83,6 +83,39 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     : c.type === 'dm' ? nameOf((c.members || []).find((id) => id !== u.id))
       : isStaff(u) ? ((db.users.find((x) => x.id === c.ownerId) || {}).name || 'Owner') : 'Winning Ranch');
   const canManage = (u, c) => (c.type === 'group' && (c.createdBy === u.id || isLead(u))) || (c.type === 'channel' && c.key === 'management' && isManagement(u));
+  // @mentions: @First (first name; with the last name too when two people in the chat share it), @everyone, @barnmanager
+  const cleanName = (x) => String(x || '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Za-z0-9]/g, ''); // João -> Joao
+  function handlesFor(c) {
+    const ms = membersOf(c);
+    const first = (u) => cleanName(String(u.name).trim().split(/\s+/)[0]) || 'Someone';
+    const count = {};
+    ms.forEach((u) => { const f = first(u).toLowerCase(); count[f] = (count[f] || 0) + 1; });
+    return ms.map((u) => {
+      const f = first(u);
+      const handle = count[f.toLowerCase()] > 1 ? f + cleanName(String(u.name).trim().split(/\s+/).slice(1).join('')) : f;
+      return { id: u.id, handle, name: u.name, tag: u.role === 'owner' ? 'owner' : ({ hand: 'ranch hand', manager: 'barn manager', office: 'office', lessons: 'lesson program' }[u.position || 'office']) };
+    });
+  }
+  const MENTION_RX = /(^|[^\w@])@([A-Za-z][A-Za-z0-9]*)/g;
+  function resolveMentions(c, text, senderId) {
+    const tokens = [...String(text || '').matchAll(MENTION_RX)].map((x) => x[2].toLowerCase());
+    if (!tokens.length) return null;
+    const ms = membersOf(c), hs = handlesFor(c);
+    const ids = new Set(), labels = new Set();
+    for (const t of tokens) {
+      if (t === 'everyone') { ms.forEach((u) => ids.add(u.id)); labels.add(t); continue; }
+      if (t === 'barnmanager') { ms.filter((u) => u.role === 'staff' && u.position === 'manager').forEach((u) => ids.add(u.id)); labels.add(t); continue; }
+      const h = hs.find((x) => x.handle.toLowerCase() === t);
+      if (h) { ids.add(h.id); labels.add(t); }
+    }
+    ids.delete(senderId);
+    return labels.size ? { mentions: [...labels], mentionIds: [...ids] } : null;
+  }
+  const setMentions = (m, c) => {
+    const r = resolveMentions(c, m.text, m.userId);
+    if (r) Object.assign(m, r); else { delete m.mentions; delete m.mentionIds; }
+  };
+
   function sys(c, text) { db.messages.push({ id: newId(), chatId: c.id, userId: null, kind: 'system', text, media: [], at: now() }); }
   const lastRead = (u, cid) => ((db.reads[u.id] || {})[cid]) || '';
   const nameOf = (id) => (db.users.find((x) => x.id === id) || {}).name || 'Someone';
@@ -115,6 +148,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
       canManage: canManage(u, c), canManagePeople: canManagePeople(u, c), canModerate: canModerate(u),
       last: last ? { text: snippet(last), at: last.at, by: last.userId === u.id ? 'You' : last.userId ? nameOf(last.userId) : '' } : null,
       unread: msgs.filter((m) => m.userId !== u.id && m.at > seen && m.kind !== 'system').length,
+      mentioned: msgs.some((m) => m.userId !== u.id && m.at > seen && !m.deletedAt && (m.mentionIds || []).includes(u.id)),
     };
   }
 
@@ -142,6 +176,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     ...(m.replyTo ? { replyTo: quoteOut(m.replyTo) } : {}),
     ...(m.reactions && m.reactions.length ? { reactions: m.reactions.map((x) => ({ uid: x.uid, name: nameOf(x.uid), e: x.e })) } : {}),
     ...(m.editedAt ? { editedAt: m.editedAt } : {}),
+    ...(m.mentions ? { mentions: m.mentions, mentionsMe: (m.mentionIds || []).includes(u.id) } : {}),
     ...(m.kind === 'system' ? { kind: 'system' } : {}),
     ...(m.kind === 'sign-request' ? {
       kind: 'sign-request',
@@ -223,6 +258,16 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
         && !(c.type === 'channel' && c.key === 'management' && x.role === 'owner')).map(person).sort((a, b) => a.name.localeCompare(b.name)) : [],
     };
   }
+
+  // Who can be @mentioned here (the composer's suggestions)
+  r.get('/chats/:id/mentions', auth.requireUser, (req, res) => {
+    const c = db.chats.find((x) => x.id === req.params.id);
+    if (!canSee(req.user, c)) return res.status(404).json({ error: 'Chat not found.' });
+    const hs = handlesFor(c).filter((h) => h.id !== req.user.id).sort((a, b) => a.name.localeCompare(b.name));
+    const managers = membersOf(c).filter((u) => u.role === 'staff' && u.position === 'manager');
+    res.json({ people: [{ handle: 'everyone', name: 'Everyone in this chat', tag: `${membersOf(c).length} people` },
+      ...(managers.length ? [{ handle: 'barnmanager', name: 'Barn manager', tag: managers.map((u) => u.name).join(', ') }] : []), ...hs.map(({ handle, name, tag }) => ({ handle, name, tag }))] });
+  });
 
   r.get('/chats/:id/people', auth.requireUser, (req, res) => {
     const c = db.chats.find((x) => x.id === req.params.id);
@@ -327,6 +372,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     const replyTo = str(b.replyTo, 40);
     const m = { id: newId(), chatId: c.id, userId: req.user.id, text, media: files.map(mediaOf), at: now(),
       ...(replyTo && db.messages.some((x) => x.id === replyTo && x.chatId === c.id) ? { replyTo } : {}), ...(clientKey ? { clientKey } : {}) };
+    setMentions(m, c);
     db.messages.push(m);
     (db.reads[req.user.id] = db.reads[req.user.id] || {})[c.id] = m.at;
     await store.save();
@@ -346,7 +392,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     if (m.userId !== req.user.id || m.kind === 'sign-request') return res.status(403).json({ error: 'You can only edit your own messages.' });
     const text = str(req.body && req.body.text, 4000);
     if (!text && !(m.media || []).length) return res.status(400).json({ error: 'Write something, or remove the message instead.' });
-    if (text !== m.text) Object.assign(m, { text, editedAt: now() });
+    if (text !== m.text) { Object.assign(m, { text, editedAt: now() }); setMentions(m, db.chats.find((x) => x.id === m.chatId)); }
     await store.save();
     res.json({ message: msgOut(req.user, m) });
   });

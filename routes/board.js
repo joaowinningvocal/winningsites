@@ -324,7 +324,7 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
       today: today(), from, days,
       stalls: db.stalls.map(stallOut),
       stays: db.bookings.filter((b) => holds(b) && overlaps(b, from, to)).map(stayOut),
-      horses: db.horses.filter((h) => h.active !== false && h.stallId).map((h) => ({ id: h.id, name: h.name, stallId: h.stallId, arrivedOn: h.arrivedOn || '', owner: (db.users.find((u) => u.id === h.ownerId) || {}).name || '' })),
+      horses: db.horses.filter((h) => h.active !== false && !h.demo).map((h) => ({ id: h.id, name: h.name, stallId: h.stallId || '', arrivedOn: h.arrivedOn || '', owner: (db.users.find((u) => u.id === h.ownerId) || {}).name || '', notes: h.notes || '' })),
       ai: AI.configured(),
     });
   });

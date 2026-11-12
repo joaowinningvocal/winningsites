@@ -44,7 +44,7 @@ window.WRSchedule = (() => {
       <div class="wrap hours schedule">
         <div class="pricing__head">
           <div><h1>Schedule</h1><p class="muted">AM ${esc(hm12(t.am.start))} to ${esc(hm12(t.am.end))}, PM ${esc(hm12(t.pm.start))} to ${esc(hm12(t.pm.end))}.
-            ${d.canEdit ? 'Press and hold a name to drag it to another shift. Drop it on a name to swap the two.' : 'Tap a coworker&rsquo;s shift to ask to take it or swap it for one of yours. A manager approves it.'}</p></div>
+            ${d.canEdit ? 'Tap a shift to pick who works it, or press and hold a name to drag it to another shift (drop it on a name to swap the two).' : 'Tap a coworker&rsquo;s shift to ask to take it or swap it for one of yours. A manager approves it.'}</p></div>
           <div class="hours__pick">
             ${d.canEdit ? `<div class="seg" role="group" aria-label="Which week"><button type="button" data-mode="week" aria-pressed="${st.mode === 'week'}">This week</button><button type="button" data-mode="usual" aria-pressed="${st.mode === 'usual'}">Usual week</button></div>` : ''}
             ${st.mode === 'week' ? `<button class="btn btn--sm btn--ghost" type="button" data-week="-7" aria-label="Previous week">&lsaquo;</button><input type="date" id="s-day" value="${esc(st.day)}" aria-label="Week of"><button class="btn btn--sm btn--ghost" type="button" data-week="7" aria-label="Next week">&rsaquo;</button>` : ''}
@@ -160,6 +160,34 @@ window.WRSchedule = (() => {
     dlg.showModal();
   }
 
+  // ---------------------------------------------------------------- managers: pick who works a shift
+  function pickSheet(slotEl) {
+    const d = st.data;
+    const row = rowOf(slotEl.dataset.row);
+    const slot = slotEl.dataset.slot;
+    if (!row) return;
+    const label = `${row.label} ${slot.toUpperCase()}`;
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sched-dialog';
+    dlg.innerHTML = `<form method="dialog" class="sched-dialog__x"><button aria-label="Close">&times;</button></form>
+      <h2>${esc(label)}</h2><p class="muted">${st.mode === 'usual' ? 'Every week, unless a day is changed by hand.' : 'Only this day.'}</p>
+      <form id="sched-pick" novalidate>${d.team.map((u) => `<label class="choice" style="display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)"><input type="checkbox" value="${u.id}"${row[slot].includes(u.id) ? ' checked' : ''} style="width:22px;height:22px;accent-color:var(--red)"> ${esc(u.name)}</label>`).join('') || '<p class="muted">Add ranch hands in People first.</p>'}
+        <button class="btn btn--red" type="submit" style="width:100%;margin-top:14px">Save</button></form>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('close', () => dlg.remove());
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.querySelector('#sched-pick').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const picked = [...dlg.querySelectorAll('input[type=checkbox]:checked')].map((x) => x.value);
+      // keep the order already on the shift, new names at the end
+      const ids = [...row[slot].filter((id) => picked.includes(id)), ...picked.filter((id) => !row[slot].includes(id))];
+      dlg.close();
+      if (ids.join() === row[slot].join()) return;
+      save([change(row, slot, ids)], `${label}: ${ids.length ? ids.map(nameOf).join(', ') : 'nobody'}.`);
+    });
+    dlg.showModal();
+  }
+
   // ---------------------------------------------------------------- actions
   function bind() {
     const wrap = root.querySelector('.schedule');
@@ -193,7 +221,10 @@ window.WRSchedule = (() => {
         return;
       }
       const c = t.closest('.sched-chip[role="button"]');
-      if (c) askSheet(c);
+      if (c) return askSheet(c);
+      // Managers: tap a shift (not a name) to pick who works it; works on any day without dragging
+      const slotEl = t.closest('.sched-slot:not(.sched-palette):not(.is-past)');
+      if (slotEl && st.data.canEdit && !t.closest('.sched-chip')) pickSheet(slotEl);
     });
     wrap.addEventListener('keydown', (e) => { const c = e.target.closest && e.target.closest('.sched-chip[role="button"]'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); askSheet(c); } });
     wrap.addEventListener('submit', async (e) => {
@@ -209,7 +240,17 @@ window.WRSchedule = (() => {
 
   // ---------------------------------------------------------------- drag (same feel as the Stall board)
   // Phones: press and hold ~0.4 s, then drag (moving sooner just scrolls). Mouse: drag right away.
-  const drag = { el: null, pointerId: null, startX: 0, startY: 0, active: false, over: null, ghost: null, timer: 0, justDropped: false };
+  const drag = { el: null, pointerId: null, startX: 0, startY: 0, active: false, over: null, ghost: null, timer: 0, justDropped: false, x: 0, y: 0, scroller: 0 };
+  // Near the top or bottom edge the page scrolls by itself, so a name from the Team list reaches Sunday on a phone
+  function edgeScroll() {
+    clearInterval(drag.scroller);
+    drag.scroller = setInterval(() => {
+      if (!drag.active) return clearInterval(drag.scroller);
+      const edge = 80, h = window.innerHeight;
+      const dy = drag.y < edge ? -Math.ceil((edge - drag.y) / 4) : drag.y > h - edge ? Math.ceil((drag.y - (h - edge)) / 4) : 0;
+      if (dy) { window.scrollBy(0, dy); follow(drag.x, drag.y); }
+    }, 16);
+  }
   const canDrag = (el) => el && st.data && st.data.canEdit && root && root.contains(el) && !el.closest('.sched-slot.is-past');
 
   function lift(x, y) {
@@ -220,8 +261,10 @@ window.WRSchedule = (() => {
     document.body.appendChild(drag.ghost);
     if (navigator.vibrate) navigator.vibrate(12);
     follow(x, y);
+    edgeScroll();
   }
   function follow(x, y) {
+    drag.x = x; drag.y = y;
     drag.ghost.style.transform = `translate(${x - drag.ghost.offsetWidth / 2}px, ${y - 30}px)`;
     const hit = document.elementFromPoint(x, y);
     const chipHit = hit && hit.closest('.sched-slot:not(.sched-palette):not(.is-past) .sched-chip');
@@ -235,6 +278,7 @@ window.WRSchedule = (() => {
   }
   function endDrag() {
     clearTimeout(drag.timer);
+    clearInterval(drag.scroller);
     if (drag.ghost) drag.ghost.remove();
     if (drag.el) drag.el.classList.remove('is-lifted');
     if (drag.over) drag.over.classList.remove('is-target');
