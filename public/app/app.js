@@ -91,6 +91,7 @@
     $('#role-text').textContent = ROLE[pos()];
     $('#menu-who').textContent = `${S.me.name}, ${S.me.email}`;
     $('#menu-dash').hidden = !isStaff();
+    paintSoundMenu();
     route();
     clearInterval(S.poll);
     S.poll = setInterval(() => { if (!document.hidden) refreshCounts(); }, 15000);
@@ -119,12 +120,31 @@
   // Back on the app after the phone slept or another app was open: catch up right away
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.thread && S.thread.pull) S.thread.pull(); });
 
+  // ------------------------------------------------------------------ the horse sound (Randy): a neigh when something new comes in
+  // Plays while the app is open: a new message in the open chat, or the bell count going up. On by default, off in the menu.
+  const neigh = new Audio('/sounds/neigh.mp3');
+  neigh.preload = 'auto';
+  const soundOn = () => { try { return localStorage.getItem('wr-sound') !== 'off'; } catch (_) { return true; } };
+  let lastNeigh = 0;
+  function playNeigh() {
+    if (!soundOn() || document.hidden || Date.now() - lastNeigh < 4000) return;
+    lastNeigh = Date.now();
+    try { neigh.currentTime = 0; const p = neigh.play(); if (p && p.catch) p.catch(() => {}); } catch (_) { /* no sound allowed yet */ }
+  }
+  // Phones only allow sound after a tap: the first tap anywhere unlocks it, silently
+  document.addEventListener('pointerdown', () => {
+    try { neigh.muted = true; const p = neigh.play(); if (p && p.then) p.then(() => { neigh.pause(); neigh.currentTime = 0; neigh.muted = false; }).catch(() => { neigh.muted = false; }); } catch (_) {}
+  }, { once: true });
+  const paintSoundMenu = () => { const b = document.getElementById('menu-sound'); if (b) b.textContent = `Horse sound: ${soundOn() ? 'on' : 'off'}`; };
+
   async function refreshCounts() {
     try {
       S.home = await api('GET', '/app/home');
       const fresh = S.home.horses.reduce((t, x) => t + x.fresh, 0);
       const extra = (S.home.pendingBookings || 0) + (S.home.waiversToCountersign || 0) + (S.home.shiftRequests || 0) + (S.home.shiftAnswers || []).length + (S.home.reports || 0);
       const n = S.home.unread + fresh + extra + (S.home.toSign || 0);
+      if (S.lastCount != null && n > S.lastCount) playNeigh();
+      S.lastCount = n;
       $('#bell-badge').hidden = !n; $('#bell-badge').textContent = n > 99 ? '99+' : n;
       $('#nav-dot').hidden = !S.home.unread;
     } catch (e) { if (e.status === 401) location.reload(); }
@@ -556,6 +576,7 @@
       const rows = msgs.map((m) => [m.id, sigOf(m)]);
       const base = JSON.stringify(rows);
       const pinned = initial || T.pin;
+      if (!initial && T.rows) { const had = new Set(T.rows.map((x) => x[0])); if (msgs.some((m) => !had.has(m.id) && !m.mine && m.kind !== 'system')) playNeigh(); }
       if (initial || !T.rows || base !== T.base) { if (initial || !T.rows || !patch(msgs, rows)) full(msgs); }
       T.seenSig = paintSeen(msgs, data.seen || []);
       T.rows = rows; T.base = base;
@@ -1104,6 +1125,12 @@
   $('#menu').onclick = async (e) => {
     const b = e.target.closest('[data-menu]');
     if (!b) return;
+    if (b.dataset.menu === 'sound') {
+      try { localStorage.setItem('wr-sound', soundOn() ? 'off' : 'on'); } catch (_) {}
+      paintSoundMenu();
+      if (soundOn()) { lastNeigh = 0; playNeigh(); }
+      return;
+    }
     if (b.dataset.menu === 'theme') { const t = document.documentElement.dataset.theme === 'dark' ? 'ranch' : 'dark'; document.documentElement.dataset.theme = t; localStorage.setItem('wr-app-theme', t); }
     if (b.dataset.menu === 'logout') { await api('POST', '/auth/logout').catch(() => {}); location.hash = ''; location.reload(); }
     $('#menu').hidden = true;
