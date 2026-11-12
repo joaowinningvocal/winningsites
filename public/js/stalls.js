@@ -410,7 +410,7 @@
             <div class="field"><label for="b-notes">Anything we should know?</label><textarea id="b-notes" name="notes" placeholder="Arrival time, the event you’re in town for, special needs"></textarea></div>
             <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
           </fieldset>
-          <label class="choice"><input type="checkbox" name="coggins" required><span>I&rsquo;ll bring a full Coggins for each horse.<small>Horses can&rsquo;t enter the ranch without one.</small></span></label>
+          <label class="choice"><input type="checkbox" name="coggins" required><span>I&rsquo;ll bring a valid Health Certificate &amp; Coggins for each horse.<small>Horses can&rsquo;t enter the ranch without them.</small></span></label>
           <p class="form-error" id="book-error" role="alert"></p>
           <button class="btn btn--red" type="submit">Send booking request</button>
         </form>
@@ -431,7 +431,7 @@
     const horses = [...f.querySelectorAll('[name="horse"]')].map((i) => i.value.trim());
     const missing = [...f.querySelectorAll('[required]')].find((i) => (i.type === 'checkbox' ? !i.checked : !i.value.trim()) || (i.type === 'email' && !i.checkValidity()));
     if (missing) {
-      err.textContent = missing.name === 'coggins' ? 'Confirm you’ll bring a full Coggins for each horse.' : missing.name === 'horse' ? 'Add a horse name for each stall.' : `Add your ${missing.name === 'email' ? 'email' : missing.name}.`;
+      err.textContent = missing.name === 'coggins' ? 'Confirm you’ll bring a valid Health Certificate & Coggins for each horse.' : missing.name === 'horse' ? 'Add a horse name for each stall.' : `Add your ${missing.name === 'email' ? 'email' : missing.name}.`;
       missing.focus();
       return;
     }
@@ -458,7 +458,7 @@
           <h2 id="book-title">Request sent</h2>
           <p class="ref">${esc(data.ref)}</p>
           <p>We&rsquo;re holding ${esc(data.stalls.join(', '))} for ${fmtDay(data.from)} to ${fmtDay(data.to)}. A team member will call or email you to confirm and take payment.</p>
-          <p>Before you arrive, everyone in your party signs a waiver, and every horse needs a full Coggins.</p>
+          <p>Before you arrive, everyone in your party signs a waiver, and every horse needs a valid Health Certificate &amp; Coggins.</p>
           <div class="sheet__actions"><a class="btn btn--red" href="waivers.html">Sign waivers</a><button class="btn" type="button" data-act="close">Back to the map</button></div>
         </div>`;
       load();

@@ -178,7 +178,7 @@ Atualizações de dados de versões anteriores rodam sozinhas uma vez na inicial
 ## O que ainda falta preencher
 
 - **No site, marcados em vermelho tracejado:**
-  - horário de visita (hoje "7 AM to 7 PM, every day", na Home e no Contact);
+  - horário de visita (hoje "9 AM to 9 PM, every day", na Home e no Contact);
   - três itens do full care: turnout diário, dar o grão e os suplementos do dono, segurar o cavalo para vet e ferrador.
 - **Quadro de instrutor e seguro dos waivers de riding:** telefone, email, seguradora, apólice, período e limites (só o nome da Shelby está preenchido).
 - **Email de contato do site:** os links ainda usam `Jenna@WinningRanch.com`.

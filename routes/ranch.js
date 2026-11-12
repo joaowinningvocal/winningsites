@@ -118,6 +118,8 @@ module.exports = function ranchRouter({ dataDir }) {
       }
       Object.assign(db.settings, { monthlyMin: 850, monthlyMax: 1000 });
     },
+    // Randy (Nov 2026): barn stalls are 12' x 24', outdoor stalls 10' x 20'. Sizes typed by hand on a stall stay.
+    'outdoor-size-10x20': () => db.stalls.forEach((st) => { if (st.group === 'outdoor' && (!st.size || st.size === STALL_SIZE)) st.size = "10' x 20'"; }),
     // Barn stall 2 went back to $0 a night after Randy fixed it (Nov 2026): the barn rate again.
     // Kept out of the price history, so "Undo last change" can't take it back to $0.
     'barn-stall-2-rate': () => {
@@ -289,7 +291,7 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!name) errors.push('Add your name.');
     if (!validEmail(email)) errors.push('Add a valid email.');
     if (!phone) errors.push('Add a phone number so we can confirm.');
-    if (b.coggins !== true) errors.push('Confirm you’ll bring a full Coggins for each horse.');
+    if (b.coggins !== true) errors.push('Confirm you’ll bring a valid Health Certificate & Coggins for each horse.');
     if (errors.length) return res.status(400).json({ error: errors[0], errors });
 
     for (const id of stallIds) {
