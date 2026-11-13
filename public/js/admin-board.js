@@ -160,7 +160,8 @@ window.WRBoard = (() => {
       ${state.chat.length ? `<div class="ai-log">${state.chat.map((m) => `<div class="ai-msg ai-msg--${m.role}"><p>${esc(m.text).replace(/\n/g, '<br>')}</p>
         ${m.stays && m.stays.length ? `<div class="btn-row">${m.undone ? '<span class="muted">Undone</span>' : `<button class="btn btn--sm btn--ghost" type="button" data-undo="${m.stays.map((x) => x.id).join(',')}">Undo ${m.stays.length === 1 ? 'this booking' : 'these bookings'}</button>`}</div>` : ''}</div>`).join('')}</div>` : ''}
       <form id="ai-form" class="ai-form" novalidate>
-        <textarea name="m" rows="2" aria-label="Message for the stall assistant" placeholder="I have 5 horses coming in Nov 15 - Nov 17. What stalls can I put them in?"></textarea>
+        <div class="ai-input"><textarea name="m" rows="3" aria-label="Message for the stall assistant" placeholder="I have 5 horses coming in Nov 15 - Nov 17. What stalls can I put them in?"></textarea>
+          <button type="button" class="ai-mic" data-mic aria-label="Speak instead of typing" title="Speak instead of typing"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7"/></svg></button></div>
         <button class="btn btn--red" type="submit">Ask</button>
       </form>
       <p class="inline-error" id="ai-err" role="alert"></p>
@@ -170,7 +171,8 @@ window.WRBoard = (() => {
   async function ask(form) {
     const text = form.m.value.trim();
     if (!text) return;
-    const btn = form.querySelector('button');
+    const btn = form.querySelector('button[type=submit]');
+    stopDictation();
     btn.disabled = true; btn.textContent = 'Thinking…';
     $('#ai-err').textContent = '';
     try {
@@ -372,6 +374,7 @@ window.WRBoard = (() => {
   }
 
   async function onClick(e) {
+    if (e.target.closest('[data-mic]')) return dictate(e.target.closest('[data-mic]'));
     const g = e.target.closest('[data-go]');
     if (g) return go(g.dataset.go);
     const t = e.target.closest('[data-stall]');
@@ -397,6 +400,37 @@ window.WRBoard = (() => {
         refresh();
       } catch (ex) { toast(ex.message); }
     }
+  }
+
+  // ---------------------------------------------------------------- speak instead of typing (Randy)
+  // The browser's speech recognition where it exists (Safari, Chrome); words land in the box as they're said.
+  // Where it doesn't (some in-app browsers), the box gets focus and the keyboard's own microphone does the same.
+  let rec = null;
+  function stopDictation() { if (rec) { try { rec.stop(); } catch (_) {} } }
+  function dictate(btn) {
+    const box = root.querySelector('#ai-form textarea');
+    if (rec) return stopDictation();
+    // Inside the iPhone app, speech recognition needs a permission text that builds before Nov 2026 don't have
+    // (asking without it can close the app): there the keyboard's microphone does it
+    const C = window.Capacitor;
+    const iosApp = !!(C && C.isNativePlatform && C.isNativePlatform() && C.getPlatform && C.getPlatform() === 'ios');
+    const SR = iosApp ? null : window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { box.focus(); toast('Tap the microphone on your keyboard and talk.'); return; }
+    rec = new SR();
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;
+    const before = box.value.trim();
+    rec.onresult = (ev) => {
+      const said = [...ev.results].map((r) => r[0].transcript).join(' ').trim();
+      box.value = (before ? before + ' ' : '') + said;
+    };
+    const done = () => { rec = null; btn.classList.remove('is-on'); btn.setAttribute('aria-label', 'Speak instead of typing'); };
+    rec.onend = done;
+    rec.onerror = (ev) => { done(); if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { box.focus(); toast('Allow the microphone, or tap the microphone on your keyboard.'); } };
+    try {
+      rec.start();
+      btn.classList.add('is-on'); btn.setAttribute('aria-label', 'Stop listening');
+      toast('Listening… tap the microphone again to stop.');
+    } catch (_) { done(); box.focus(); toast('Tap the microphone on your keyboard and talk.'); }
   }
 
   function onSubmit(e) {

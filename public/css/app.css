@@ -493,3 +493,12 @@ body.app { background: var(--sand-soft); min-height: 100vh; padding-bottom: 0; }
 .schedule .sched-slot:not(.sched-palette):not(.is-past) { cursor: pointer; }
 
 .care-notes { white-space: pre-wrap; }
+
+/* Stall assistant: speak instead of typing */
+.ai-input { position: relative; flex: 1; display: flex; }
+.ai-input textarea { padding-right: 52px; }
+.ai-mic { position: absolute; right: 6px; top: 6px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.ai-mic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ai-mic.is-on { background: var(--red); border-color: var(--red); color: #fff; animation: micpulse 1.2s ease-in-out infinite; }
+@keyframes micpulse { 50% { box-shadow: 0 0 0 6px rgba(204,35,42,.25); } }
+@media (prefers-reduced-motion: reduce) { .ai-mic.is-on { animation: none; } }
