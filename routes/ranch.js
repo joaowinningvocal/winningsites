@@ -293,6 +293,11 @@ module.exports = function ranchRouter({ dataDir }) {
     console.log(`[ops] ${req.method} ${req.path} as ${actor.name}`);
     next();
   });
+  // Previewing someone's app: read only (logging out and stopping the preview still work)
+  r.use((req, res, next) => {
+    if (!req.viewAs || req.method === 'GET' || req.method === 'HEAD' || /^\/auth\/(view-as|view-as\/stop|logout)$/.test(req.path)) return next();
+    res.status(403).json({ error: `You’re looking at the app as ${req.user.name}, so nothing can be sent or changed. Stop the preview first.`, preview: true });
+  });
   const opsBrief = (u) => ({
     ...auth.publicUser(u), createdAt: u.createdAt || null, lastLoginAt: u.lastLoginAt || null, appInviteAt: u.appInviteAt || null,
     setupLinkAt: u.setupLinkAt || null, demo: !!u.demo,
@@ -529,11 +534,35 @@ module.exports = function ranchRouter({ dataDir }) {
   const loginLimit = rateLimit({ limit: 10, windowMs: 15 * 60e3 });
 
   r.use((req, res, next) => {
-    if (!req.user || !req.user.mustChangePassword || /^\/auth\/(me|logout|change-password)$/.test(req.path)) return next();
+    if (!req.user || req.viewAs || !req.user.mustChangePassword || /^\/auth\/(me|logout|change-password|view-as)$/.test(req.path)) return next();
     res.status(403).json({ error: 'Create your own password first.', mustChangePassword: true });
   });
 
-  r.get('/auth/me', (req, res) => res.json({ user: auth.publicUser(req.user) }));
+  r.get('/auth/me', (req, res) => res.json({ user: auth.publicUser(req.user),
+    ...(req.viewAs ? { viewAs: { name: req.user.name, role: req.user.role, position: req.user.position || undefined, by: req.realUser.name } } : {}),
+    canPreview: auth.canPreview(req.realUser || req.user) }));
+
+  // "See the app as…" (Randy and Jenna): the office looks at the app exactly as a ranch hand, the barn manager,
+  // the lesson program or a boarder sees it. Read only: nothing can be sent or changed until the preview stops.
+  r.get('/auth/view-as', (req, res) => {
+    const me = req.realUser || req.user;
+    if (!auth.canPreview(me)) return res.status(403).json({ error: 'Only the office can do this.' });
+    const label = (u) => (u.role === 'owner' ? (u.demo ? 'sample boarder' : 'boarder') : ({ hand: 'ranch hand', manager: 'barn manager', office: 'office', lessons: 'lesson program' }[u.position || 'office']));
+    res.json({ people: db.users.filter((u) => u.active !== false && u.id !== me.id && !(u.role === 'staff' && (u.position || 'office') === 'office'))
+      .map((u) => ({ id: u.id, name: u.name, kind: label(u), demo: !!u.demo }))
+      .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind.localeCompare(b.kind))) });
+  });
+  r.post('/auth/view-as', async (req, res) => {
+    const me = req.realUser || req.user;
+    if (!auth.canPreview(me)) return res.status(403).json({ error: 'Only the office can do this.' });
+    const t = db.users.find((u) => u.id === (req.body && req.body.userId) && u.active !== false);
+    if (!t || t.id === me.id) return res.status(400).json({ error: 'Pick someone.' });
+    if (t.role === 'staff' && (t.position || 'office') === 'office') return res.status(400).json({ error: 'Office accounts see the same as you.' });
+    if (!auth.setViewAs(req, t.id)) return res.status(401).json({ error: 'Log in again.' });
+    console.log(`[preview] ${me.name} is looking at the app as ${t.name}`);
+    res.json({ ok: true });
+  });
+  r.post('/auth/view-as/stop', (req, res) => { auth.setViewAs(req, null); res.json({ ok: true }); });
 
   // First login with the temporary password: pick your own
   r.post('/auth/change-password', loginLimit, auth.requireUser, async (req, res) => {
@@ -648,6 +677,11 @@ module.exports = function ranchRouter({ dataDir }) {
     if (!allowed || allowed.some((rx) => rx.test(`${req.method} ${req.path}`))) return next();
     res.status(403).json({ error: 'Ask a manager for access to this.' });
   });
+  // Signed waivers hold personal information: only the office (Randy, Jenna) opens, prints, countersigns or deletes them
+  staff.use((req, res, next) => {
+    if (!/^\/waivers(\/|$)/.test(req.path) || (req.user.position || 'office') === 'office' || req.user.master) return next();
+    res.status(403).json({ error: 'Only the office sees signed waivers.' });
+  });
   r.use('/admin', staff);
 
 
@@ -675,7 +709,7 @@ module.exports = function ranchRouter({ dataDir }) {
   r.post('/auth/forgot', loginLimit, async (req, res) => {
     const email = str(req.body && req.body.email, 160).toLowerCase();
     const user = db.users.find((u) => u.email === email && u.active !== false);
-    const done = () => res.json({ message: 'If that email has an account, we sent it a link to set a new password. Open it on this phone.' });
+    const done = () => res.json({ message: 'If that email has an account, we sent it a link to set a new password. Open it on this phone. We send one link every 10 minutes, so if you just asked, use the email you already got (check spam too).' });
     if (!user || (user.setupLinkAt && Date.now() - Date.parse(user.setupLinkAt) < 10 * 60e3)) return done();
     const url = `${origin(req)}/#/invite/${auth.createInvite(user)}`;
     const mail = mailer.configured() === 'none' ? { ok: false } : await mailer.sendEmail({

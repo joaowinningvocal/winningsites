@@ -73,7 +73,19 @@ window.WR = (() => {
   const money = (v) => (v == null ? '' : '$' + (Number.isInteger(v) ? v : Number(v).toFixed(2)));
 
   async function me() {
-    try { return (await api('GET', '/auth/me')).user; } catch { return null; }
+    try {
+      const d = await api('GET', '/auth/me');
+      // The office previewing someone's app ("See the app as…"): say so on every page, with a way out
+      if (d.viewAs && !document.getElementById('preview-bar')) {
+        const bar = document.createElement('div');
+        bar.id = 'preview-bar';
+        bar.setAttribute('style', 'position:sticky;top:0;z-index:100;display:flex;gap:10px;align-items:center;justify-content:space-between;background:#F0B400;color:#0E0E0E;padding:6px 14px;font:500 .9rem system-ui,sans-serif');
+        bar.innerHTML = `<span>Viewing as <b>${esc(d.viewAs.name)}</b> · read only</span><button type="button" style="border:0;background:#0E0E0E;color:#fff;border-radius:999px;padding:6px 14px;font-weight:600">Stop</button>`;
+        bar.querySelector('button').onclick = async () => { try { await api('POST', '/auth/view-as/stop'); } catch (_) {} location.href = '/'; };
+        document.body.prepend(bar);
+      }
+      return d.user;
+    } catch { return null; }
   }
 
   async function logout() {

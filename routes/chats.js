@@ -533,7 +533,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
       out.horsesOnRanch = db.horses.filter((h) => h.active !== false).length;
       if (pos !== 'hand') {
         out.pendingBookings = db.bookings.filter((b) => b.status === 'pending').length;
-        out.waiversToCountersign = (db.waivers || []).filter((w) => !w.deletedAt && !w.countersign).length;
+        if (pos === 'office' || u.master) out.waiversToCountersign = (db.waivers || []).filter((w) => !w.deletedAt && !w.countersign).length; // signed waivers: office only
         out.onClock = (db.shifts || []).filter((s) => !s.deletedAt && !s.out).map((s) => nameOf(s.userId));
       }
       if (pos !== 'lessons' && scheduleSummary) Object.assign(out, scheduleSummary(u)); // next shifts, take/swap answers and requests

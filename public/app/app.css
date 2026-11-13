@@ -366,3 +366,18 @@ b.ok, .ok { color: #1f8a4c; }
 
 .care-box { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 12px; padding: 10px 14px; margin: 10px 0 6px; }
 .care-box p { white-space: pre-wrap; margin-top: 4px; }
+
+/* "See the app as…": a bar on top while the office previews someone's app */
+.preview-bar { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F0B400; color: #0E0E0E; padding: calc(6px + var(--sat)) 14px 6px; font-size: .9rem; }
+.preview-bar button { border: 0; background: #0E0E0E; color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 600; flex: none; }
+.preview-bar { min-height: calc(34px + var(--sat)); }
+body.previewing .topbar { top: calc(34px + var(--sat)); padding-top: 0; }
+
+/* Jenna: the chat's name and People stay on top while scrolling through the messages */
+.thread__head { position: sticky; top: calc(60px + var(--sat)); z-index: 20; background: var(--paper); padding-top: 8px; margin-top: -4px; }
+.msg-day { top: calc(128px + var(--sat)); }
+body.previewing .thread__head { top: calc(94px + var(--sat)); }
+body.previewing .msg-day { top: calc(162px + var(--sat)); }
+.preview-bar { height: calc(34px + var(--sat)); min-height: 0; padding: var(--sat) 12px 0; font-size: .82rem; white-space: nowrap; }
+.preview-bar span { overflow: hidden; text-overflow: ellipsis; }
+.preview-bar button { padding: 4px 12px; }

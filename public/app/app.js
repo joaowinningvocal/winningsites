@@ -82,9 +82,13 @@
     document.documentElement.dataset.theme = localStorage.getItem('wr-app-theme') || 'ranch';
     const invite = location.hash.match(/^#\/invite\/(.+)$/);
     if (invite) return inviteView(decodeURIComponent(invite[1]));
-    try { S.me = (await api('GET', '/auth/me')).user; } catch (_) { S.me = null; }
+    let meRes = {};
+    try { meRes = await api('GET', '/auth/me'); S.me = meRes.user; } catch (_) { S.me = null; }
     if (!S.me) return login();
-    if (S.me.mustChangePassword) return newPasswordView();
+    S.viewAs = meRes.viewAs || null;
+    S.canPreview = !!meRes.canPreview;
+    if (S.me.mustChangePassword && !S.viewAs) return newPasswordView();
+    previewBar();
     $('#topbar').hidden = false; $('#bottom-nav').hidden = false;
     $('#fab').hidden = !isStaff() || !inChats();
     document.querySelector('[data-nav="messages"]').hidden = !inChats();
@@ -95,6 +99,38 @@
     route();
     clearInterval(S.poll);
     S.poll = setInterval(() => { if (!document.hidden) refreshCounts(); }, 15000);
+  }
+
+  // ------------------------------------------------------------------ "See the app as…" (office): a read-only look at someone's app
+  function previewBar() {
+    const mp = $('#menu-preview');
+    if (mp) { mp.hidden = !S.canPreview; mp.textContent = S.viewAs ? 'Stop the preview' : 'See the app as…'; }
+    let bar = document.getElementById('preview-bar');
+    if (!S.viewAs) { if (bar) bar.remove(); document.body.classList.remove('previewing'); return; }
+    if (!bar) { bar = document.createElement('div'); bar.id = 'preview-bar'; bar.className = 'preview-bar'; document.body.prepend(bar); }
+    const kind = S.viewAs.role === 'owner' ? 'boarder' : ({ hand: 'ranch hand', manager: 'barn manager', lessons: 'lesson program' }[S.viewAs.position] || 'team');
+    bar.innerHTML = `<span>Viewing as <b>${esc(S.viewAs.name)}</b> (${esc(kind)}) · read only</span><button type="button" id="preview-stop">Stop</button>`;
+    document.body.classList.add('previewing');
+    $('#preview-stop').onclick = stopPreview;
+  }
+  async function stopPreview() {
+    try { await api('POST', '/auth/view-as/stop'); } catch (_) { /* reload anyway */ }
+    location.hash = '#/home'; location.reload();
+  }
+  async function previewSheet() {
+    let people;
+    try { ({ people } = await api('GET', '/auth/view-as')); } catch (ex) { toast(ex.message); return; }
+    const groups = {};
+    people.forEach((p) => { (groups[p.kind] = groups[p.kind] || []).push(p); });
+    const order = ['ranch hand', 'barn manager', 'lesson program', 'boarder', 'sample boarder'];
+    openSheet(`<h2>See the app as…</h2><p class="muted">You see exactly what they see. It&rsquo;s read only: nothing is sent, marked as read or changed. Stop it from the bar at the top.</p>
+      ${order.filter((k) => groups[k]).map((k) => `<p class="section-label">${esc(k === 'sample boarder' ? 'Sample boarder (store review account)' : k[0].toUpperCase() + k.slice(1) + 's')}</p>
+        ${groups[k].map((p) => `<button class="chat-row" type="button" data-as="${esc(p.id)}"><span class="avatar">${esc(p.name.slice(0, 1))}</span><span class="meta"><b>${esc(p.name)}</b><span>${esc(p.kind)}</span></span></button>`).join('')}`).join('')
+        || '<p class="muted">Nobody else to look at yet.</p>'}<p class="err" id="pv-err"></p>`, (sheet) => {
+      sheet.querySelectorAll('[data-as]').forEach((b) => { b.onclick = async () => {
+        try { await api('POST', '/auth/view-as', { userId: b.dataset.as }); location.hash = '#/home'; location.reload(); } catch (ex) { $('#pv-err', sheet).textContent = ex.message; }
+      }; });
+    });
   }
 
   function route() {
@@ -274,7 +310,7 @@
         body += `<p class="section-label">Ranch</p>`;
         body += feature({ href: '/admin/#/board', icon: 'stall', title: 'Stall board', sub: 'Who’s in each stall, add horses, ask the stall assistant' });
         body += feature({ href: '/admin/#/bookings', icon: 'cal', title: 'Bookings', sub: h.pendingBookings ? `${h.pendingBookings} waiting for you` : 'Nothing waiting', badge: h.pendingBookings || '' });
-        body += feature({ href: '/admin/#/waivers', icon: 'doc', title: 'Waivers', sub: h.waiversToCountersign ? `${h.waiversToCountersign} to countersign` : 'All countersigned', badge: h.waiversToCountersign || '' });
+        if (p === 'office') body += feature({ href: '/admin/#/waivers', icon: 'doc', title: 'Waivers', sub: h.waiversToCountersign ? `${h.waiversToCountersign} to countersign` : 'All countersigned', badge: h.waiversToCountersign || '' });
         body += feature({ href: '/admin/#/hours', icon: 'clock', title: 'Hours', sub: h.onClock.length ? `On the clock: ${h.onClock.join(', ')}` : 'Nobody on the clock' });
         body += feature({ act: 'client-waivers', icon: 'pen', title: 'Send waivers to a client', sub: 'For lessons and visitors without an account' });
         body += feature({ act: 'instructor', icon: 'doc', title: 'Instructor and insurance', sub: 'What the riding waivers show in that box' });
@@ -1125,6 +1161,7 @@
   $('#menu').onclick = async (e) => {
     const b = e.target.closest('[data-menu]');
     if (!b) return;
+    if (b.dataset.menu === 'preview') { $('#menu').hidden = true; if (S.viewAs) stopPreview(); else previewSheet(); return; }
     if (b.dataset.menu === 'sound') {
       try { localStorage.setItem('wr-sound', soundOn() ? 'off' : 'on'); } catch (_) {}
       paintSoundMenu();
