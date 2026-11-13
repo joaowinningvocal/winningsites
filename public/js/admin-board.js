@@ -7,7 +7,10 @@
    - Without the assistant, "Find stalls" does the same picking and the team books with one tap */
 window.WRBoard = (() => {
   const { api, esc, toast, fmtDay } = window.WR;
-  const DAYS = 14;
+  // How far the calendar reaches: 2 weeks, a month or 2 months (Randy: blocking stalls for the end of the month and December)
+  const RANGES = [[14, '2 weeks'], [31, '1 month'], [62, '2 months']];
+  let DAYS = (() => { try { const n = +localStorage.getItem('wr-board-days'); return RANGES.some(([d]) => d === n) ? n : 14; } catch (_) { return 14; } })();
+  const rangeLabel = () => (RANGES.find(([d]) => d === DAYS) || RANGES[0])[1];
   const MAX_PHONES = 3;
   const state = { day: null, data: null, chat: [], found: null, finder: null };
   let root = null;
@@ -84,8 +87,10 @@ window.WRBoard = (() => {
           ${legend()}
         </section>
         <section class="panel">
-          <h2>Next two weeks</h2>
-          <p class="muted">Each row is a stall. Tap a day to open that stall.</p>
+          <div class="cal-head"><h2>Next ${esc(rangeLabel())}</h2>
+            <div class="seg" role="group" aria-label="How far to show">${RANGES.map(([n, t]) => `<button type="button" data-range="${n}" aria-pressed="${n === DAYS}">${t}</button>`).join('')}</div></div>
+          <p class="muted">Each row is a stall, starting ${esc(fmtDay(state.day))}. Tap a day to open that stall, or block stalls for any dates:</p>
+          <p><button class="btn btn--red btn--sm" type="button" data-block>+ Block out stalls</button></p>
           ${calendar()}
         </section>
       </div>`;
@@ -259,7 +264,7 @@ window.WRBoard = (() => {
     dialog(`<h2>${esc(label(s))}${s.ponyOnly ? ' <small class="muted">ponies only</small>' : ''}</h2>
       <p class="muted">${esc(fmtDay(day))}: ${esc(c.kind === 'free' ? 'free' : c.kind === 'horse' ? `${c.horse.name} (Horses tab)` : whoIn(c.stay, id))}${s.size ? ` &middot; ${esc(s.size)}` : ''}</p>
       ${horse ? `<p class="flag">${esc(horse.name)}${horse.owner ? ` (${esc(horse.owner)})` : ''} is assigned to this stall in <a class="textlink" href="#/horses">Horses</a>, so it stays taken until they leave.</p>${horse.notes ? `<p><b>Feeding &amp; care:</b> <span class="care-notes">${esc(horse.notes)}</span></p>` : ''}` : ''}
-      ${stays.length ? stays.map(card).join('') : '<p>Nothing booked here in the next two weeks.</p>'}
+      ${stays.length ? stays.map(card).join('') : `<p>Nothing booked here in the next ${esc(rangeLabel())}.</p>`}
       ${c.kind === 'free' || c.kind === 'ours' || (c.stay && c.stay.to) ? `<div class="btn-row" style="margin-top:14px"><button class="btn btn--red" type="button" data-add>Add a horse to this stall</button></div>` : ''}
       <p class="inline-error" data-err></p>`, (dlg) => {
       dlg.onclick = async (e) => {
@@ -375,6 +380,12 @@ window.WRBoard = (() => {
 
   async function onClick(e) {
     if (e.target.closest('[data-mic]')) return dictate(e.target.closest('[data-mic]'));
+    const rg = e.target.closest('[data-range]');
+    if (rg) { DAYS = +rg.dataset.range; try { localStorage.setItem('wr-board-days', String(DAYS)); } catch (_) {} return refresh(); }
+    if (e.target.closest('[data-block]')) {
+      const first = state.data.stalls.filter((st) => st.status === 'available' && !st.ponyOnly).sort(order).find((st) => cell(st, state.day).kind === 'free');
+      return editor({ stallIds: [(first || state.data.stalls.find((st) => st.status === 'available')).id], from: state.day, to: addDays(state.day, 1), kind: 'nightly' });
+    }
     const g = e.target.closest('[data-go]');
     if (g) return go(g.dataset.go);
     const t = e.target.closest('[data-stall]');
