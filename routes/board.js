@@ -256,6 +256,59 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
     return { moved: `${name(a, toId)} to ${stallLabel(toId)}${b ? `, ${name(b, fromId)} to ${stallLabel(fromId)}` : ''}` };
   }
 
+  // ---------------------------------------------------------------- away for some dates (Jenna, NFR): move horses out and back
+  // A stay is split in up to three parts that all keep the owner, phones, email, notes, horse names and links:
+  // before (as it was, until `from`), during (`from` to `to`, in the new stalls; horses going off the property
+  // are left out) and after (back in the original stalls from `to`, until the stay's own end).
+  // moves: [{ stallId: a stall of the stay, to: another stall id, or '' for off the property }]
+  function relocate(stay, { from, to, moves }, by) {
+    if (!stay || !holds(stay)) return { error: 'Booking not found.' };
+    if (!isStay(stay)) return { error: 'That’s a request from the website. Change it in Bookings.' };
+    if (!isDate(from) || !isDate(to) || to <= from) return { error: 'Pick the day they move and the day they come back (after it).' };
+    if (from < stay.from) return { error: `This stay starts ${stay.from}. Pick a day from then on.` };
+    if (stay.to && to > stay.to) return { error: `This stay ends ${stay.to}. Pick a day back before that.` };
+    const map = new Map();
+    for (const m of Array.isArray(moves) ? moves : []) {
+      const old = String((m && m.stallId) || ''), dest = String((m && m.to) || '');
+      if (!stay.stallIds.includes(old)) return { error: 'One of those horses isn’t in this stay.' };
+      if (dest && !stallById(dest)) return { error: 'One of those stalls doesn’t exist.' };
+      if (dest === old) continue;
+      map.set(old, dest);
+    }
+    if (!map.size) return { error: 'Pick where at least one horse goes.' };
+    const base = { ours: !!stay.ours, name: stay.name || '', email: stay.email || '', phones: phonesOf(stay), notes: stay.notes || '' };
+    const pick = (keep) => {
+      const out = { stallIds: [], horses: [], ponies: [], horseIds: [] };
+      stay.stallIds.forEach((id, i) => {
+        const dest = keep(id);
+        if (dest === null) return;
+        out.stallIds.push(dest); out.horses.push((stay.horses || [])[i] || ''); out.ponies.push(!!(stay.ponies || [])[i]); out.horseIds.push((stay.horseIds || [])[i] || '');
+      });
+      return out;
+    };
+    const during = pick((id) => (map.has(id) ? map.get(id) || null : id));
+    const afterEnd = stay.to || null;
+    const after = afterEnd && afterEnd <= to ? null : pick((id) => id);
+    // Shorten (or set aside) the original first, so the new parts don't clash with it; undo everything on any error
+    const saved = { to: stay.to, nights: stay.nights, status: stay.status };
+    if (stay.from < from) { stay.to = from; stay.nights = nightsOf(stay.from, from); } else stay.status = 'cancelled';
+    const parts = [];
+    const warnings = [];
+    for (const [f, t, sel] of [[from, to, during], [to, afterEnd, after]]) {
+      if (!sel || !sel.stallIds.length) continue;
+      const kind = !t || (stay.kind || 'nightly') === 'monthly' ? 'monthly' : 'nightly';
+      const r = readStay({ ...base, kind, from: f, to: t, ...sel }, null);
+      if (r.error) { Object.assign(stay, saved); return { error: r.error }; }
+      warnings.push(...r.warnings);
+      parts.push(r);
+    }
+    for (const r of parts) retirePlaceholders(r.replaces, by);
+    Object.assign(stay, { updatedAt: now(), updatedBy: by.name, ...(stay.status === 'cancelled' ? { replacedBy: 'away' } : {}) });
+    const made = parts.map((r) => { const b = createStay(r.fields, by, 'staff'); b.partOf = stay.partOf || stay.ref; return b; });
+    const off = [...map.entries()].filter(([, d]) => !d).map(([id]) => (stay.horses || [])[stay.stallIds.indexOf(id)] || stallLabel(id));
+    return { stays: made, kept: stay.status !== 'cancelled' ? stay : null, warnings, off };
+  }
+
   // ---------------------------------------------------------------- planning: stalls free for the dates, closest together first
   function candidates(from, to, exclude = []) {
     return db.stalls.filter((s) => s.status === 'available' && !exclude.includes(s.id)).map((s) => {
@@ -358,6 +411,15 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
     res.json({ stay: stayOut(cur), warnings });
   });
 
+  staff.post('/stays/:id/away', async (req, res) => {
+    const stay = db.bookings.find((x) => x.id === req.params.id);
+    const b = req.body || {};
+    const out = relocate(stay, { from: b.from, to: b.to, moves: b.moves }, req.user);
+    if (out.error) return res.status(409).json({ error: out.error });
+    await store.save();
+    res.json({ stays: out.stays.map(stayOut), warnings: out.warnings, off: out.off });
+  });
+
   staff.post('/stays/move', async (req, res) => {
     const b = req.body || {};
     const out = moveHorse(String(b.from || ''), String(b.to || ''), isDate(b.day) ? b.day : today(), req.user);
@@ -388,8 +450,8 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
             const base = { id: s.id, label: P.label(s), ...(s.ponyOnly ? { ponyOnly: true } : {}), ...(s.smaller ? { size: s.size || 'shorter' } : {}) };
             if (s.status !== 'available') return { ...base, state: 'not in use' };
             const { hard, ours } = holdsOn(s.id, from, end);
-            if (hard.length) { const x = hard[0]; return { ...base, state: 'taken', by: x.horse || who(x), ref: x.ref, kind: x.kind || 'nightly', until: x.horse ? 'no end date' : x.to || 'no end date' }; }
-            if (ours.length) return { ...base, state: 'ours', horse: who(ours[0]) };
+            if (hard.length) { const x = hard[0]; return { ...base, state: 'taken', by: x.horse || who(x), ...(x.horse ? {} : { horse: (x.horses || [])[x.stallIds.indexOf(s.id)] || '' }), ref: x.ref, kind: x.kind || 'nightly', until: x.horse ? 'no end date' : x.to || 'no end date' }; }
+            if (ours.length) return { ...base, state: 'ours', horse: (ours[0].horses || [])[ours[0].stallIds.indexOf(s.id)] || who(ours[0]), ref: ours[0].ref };
             return { ...base, state: 'free' };
           }),
         };
@@ -411,6 +473,17 @@ module.exports = function board({ staff, db, store, newId, now, str, isDate, sta
         retirePlaceholders(replaces, user);
         const b = createStay(fields, user, 'ai');
         return { ref: b.ref, stalls: fields.stallIds.map((id) => P.label(stallById(id))), from: b.from, to: b.to || 'no end date', warnings };
+      },
+      move_for_dates: ({ ref, from, to, moves }) => {
+        const b = db.bookings.find((x) => x.ref === String(ref || '').toUpperCase() && holds(x));
+        if (!b) return { error: 'No open booking with that ref.' };
+        const list = (Array.isArray(moves) ? moves : []).map((m) => ({ stallId: m && m.from_stall, to: m && m.to_stall && m.to_stall !== 'off' ? m.to_stall : '' }));
+        const out = relocate(b, { from, to, moves: list }, user);
+        if (out.error) return { error: out.error };
+        return {
+          parts: out.stays.map((x) => ({ ref: x.ref, from: x.from, to: x.to || 'no end date', stalls: x.stallIds.map((id) => P.label(stallById(id))), horses: x.horses })),
+          off_property: out.off, warnings: out.warnings, original_now_ends: out.kept ? out.kept.to : null,
+        };
       },
       cancel_booking: ({ ref }) => {
         const b = db.bookings.find((x) => x.ref === String(ref || '').toUpperCase() && holds(x));

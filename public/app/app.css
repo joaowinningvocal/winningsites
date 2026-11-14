@@ -248,7 +248,7 @@ b.ok, .ok { color: #1f8a4c; }
    a menu when you hold a message, and a people sheet */
 .chat-search { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 11px 14px; margin: 4px 0 12px; }
 .chat-card { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; }
-.chat-card--main { border-left: 4px solid var(--red); }
+.chat-card.has-new { border-left: 4px solid var(--red); } /* red only when something is unread */
 .chat-card.has-new { box-shadow: 0 10px 24px -18px rgba(204,35,42,.8); }
 .chat-card__top { display: flex; align-items: center; gap: 8px; }
 .chat-card__top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

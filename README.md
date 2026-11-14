@@ -166,6 +166,8 @@ Em `/admin/#/board` (e no atalho **Stall board** da Home do app, para manager e 
 - Na primeira vez, o board já vem com a planilha da Jenna: boarders nas baias 2 a 9 e 12, nossos cavalos de 13 a 19, todos sem nome. É só tocar e pôr o nome.
 - Reservas do site (pendentes e confirmadas) também aparecem e bloqueiam. A aba **Bookings** mostra só os pedidos do site.
 
+**Mudar por algumas datas (NFR):** ao tocar numa baia, cada estadia tem **Move for some dates**. Escolhe o dia da saída, o dia da volta e, pra cada cavalo, outra baia ou **Off the property**. A estadia vira até três partes (antes, durante e depois), e todas levam junto dono, telefones, notas e nome do cavalo. O assistente faz o mesmo (ferramenta `move_for_dates`) e não pede de novo dados que já estão no board. O calendário mostra 2 semanas, 1 mês ou 2 meses, e **+ Block out stalls** bloqueia qualquer data.
+
 ## Trocar o mapa
 
 Substitua `public/img/ranch-map.jpg` (e `ranch-map-small.jpg`) e ajuste `lib/ranch-layout.js`: o tamanho da imagem, o retângulo de cada baia e as áreas sem reserva, tudo em pixels da imagem. Preços, fotos e status das baias continuam como estão.

@@ -258,6 +258,7 @@ window.WRBoard = (() => {
         <dt>Added by</dt><dd>${esc(x.source === 'web' ? 'Website request' : x.source === 'ai' ? `Stall assistant, for ${x.createdBy}` : x.createdBy || 'The team')}</dd></dl>
       ${x.source === 'web' ? '<p class="muted">From the website. Change it in <a class="textlink" href="#/bookings">Bookings</a>.</p>' : `<div class="btn-row">
         <button class="btn btn--sm btn--red" type="button" data-edit="${x.id}">Edit</button>
+        <button class="btn btn--sm btn--ghost" type="button" data-away="${x.id}">Move for some dates</button>
         ${!x.to || x.to > addDays(day, 1) ? `<button class="btn btn--sm btn--ghost" type="button" data-end="${x.id}">Moves out ${esc(short(day > x.from ? day : addDays(x.from, 1)))}</button>` : ''}
         <button class="btn btn--sm btn--ghost btn--danger" type="button" data-remove="${x.id}">Remove</button></div>`}
     </article>`;
@@ -276,6 +277,8 @@ window.WRBoard = (() => {
         }
         const ed = e.target.closest('[data-edit]');
         if (ed) return editor(d.stays.find((x) => x.id === ed.dataset.edit));
+        const aw = e.target.closest('[data-away]');
+        if (aw) return awayForm(d.stays.find((x) => x.id === aw.dataset.away), day);
         const end = e.target.closest('[data-end]');
         if (end) {
           const x = d.stays.find((y) => y.id === end.dataset.end);
@@ -291,6 +294,46 @@ window.WRBoard = (() => {
           try { await api('DELETE', `/admin/stays/${x.id}`); dlg.close(); toast('Removed'); refresh(); } catch (ex) { err.textContent = ex.message; }
         }
       };
+    });
+  }
+
+  // Move for some dates (Jenna, NFR): horses go to other stalls or off the property, then come back.
+  // Everything on the booking (owner, phones, notes, horse names) goes with them; nothing is typed again.
+  function awayForm(x, day) {
+    const stalls = state.data.stalls.filter((st) => st.status === 'available').sort(order);
+    const from0 = day > x.from ? day : x.from;
+    const back0 = x.to && x.to < addDays(from0, 14) ? x.to : addDays(from0, 14);
+    const row = (id, i) => `<div class="away-row"><span><b>${esc(x.horses[i] || 'Horse')}</b><small class="muted">now in ${esc(label(byId(id)))}</small></span>
+        <select data-away-stall="${id}" aria-label="Where ${esc(x.horses[i] || 'this horse')} goes">
+          <option value="${id}">Stays in ${esc(label(byId(id)))}</option>
+          <option value="">Off the property</option>
+          ${stalls.filter((st) => st.id !== id).map((st) => `<option value="${st.id}">${esc(label(st))}${st.ponyOnly ? ' (ponies)' : ''}</option>`).join('')}
+        </select></div>`;
+    dialog(`<h2>Move for some dates</h2>
+      <p class="muted">${esc(whoIn(x, x.stallIds[0]))} (${esc(x.ref)}). Pick where each horse goes and the day it comes back. The owner, phones, notes and horse names go with them.</p>
+      <form class="stack" id="away-form" novalidate>
+        <div class="form-grid">
+          <div class="field"><label for="a-from">Moves on</label><input id="a-from" name="from" type="date" value="${esc(from0)}" min="${esc(x.from)}"></div>
+          <div class="field"><label for="a-to">Back in the usual stall on</label><input id="a-to" name="to" type="date" value="${esc(back0)}"${x.to ? ` max="${esc(x.to)}"` : ''}></div>
+        </div>
+        <div class="away-rows">${x.stallIds.map(row).join('')}</div>
+        <p class="inline-error" data-err role="alert"></p>
+        <div class="btn-row"><button class="btn btn--red" type="submit">Move them</button><button class="btn btn--ghost" type="button" data-close>Cancel</button></div>
+      </form>`, (dlg) => {
+      dlg.onclick = null; // the stall's buttons aren't on this screen (closing is handled by the dialog itself)
+      dlg.querySelector('#away-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = e.target, err = f.querySelector('[data-err]');
+        const moves = [...f.querySelectorAll('[data-away-stall]')].map((sel) => ({ stallId: sel.dataset.awayStall, to: sel.value })).filter((m) => m.to !== m.stallId);
+        if (!moves.length) { err.textContent = 'Pick a stall (or Off the property) for at least one horse.'; return; }
+        const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+        try {
+          const r = await api('POST', `/admin/stays/${x.id}/away`, { from: f.from.value, to: f.to.value, moves });
+          dlg.close();
+          toast(`Done. ${r.off.length ? `${r.off.join(', ')} off the property; ` : ''}back on ${fmtDay(f.to.value)}.${r.warnings.length ? ' ' + r.warnings.join(' ') : ''}`);
+          refresh();
+        } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+      });
     });
   }
 
