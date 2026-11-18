@@ -305,7 +305,7 @@
       body += feature({ href: '/admin/#/schedule', icon: 'cal', title: 'Schedule', sub: h.shiftRequests ? `${h.shiftRequests} shift request${h.shiftRequests === 1 ? '' : 's'} to approve` : h.nextShifts && h.nextShifts.length ? `Next: ${h.nextShifts.join(', ')}` : 'AM and PM shifts this week', badge: h.shiftRequests || '' });
       body += feature({ act: 'post', icon: 'camera', title: 'Post an update', sub: 'Photos and videos for the owners' });
       body += feature({ href: '#/messages', icon: 'chat', title: 'Messages', sub: 'Team chat and owner chats', badge: h.unread || '' });
-      body += feature({ href: '#/documents', icon: 'pen', title: 'My documents', sub: h.toSign ? `${h.toSign} to sign` : 'Employee packet and W-9', badge: h.toSign || '' });
+      body += feature({ href: '#/documents', icon: 'pen', title: 'My documents', sub: h.toSign ? `${h.toSign} to sign` : 'Employee packet, with the W-9', badge: h.toSign || '' });
       if (p !== 'hand') {
         body += `<p class="section-label">Ranch</p>`;
         body += feature({ href: '/admin/#/board', icon: 'stall', title: 'Stall board', sub: 'Who’s in each stall, add horses, ask the stall assistant' });
@@ -1092,8 +1092,7 @@
       ${group('To sign', docs.filter((d) => d.status === 'requested'))}
       ${group('Signed', docs.filter((d) => d.status === 'signed'))}
       ${group(docs.some((d) => d.status !== 'available') ? 'Other documents' : 'Your documents', docs.filter((d) => d.status === 'available'))}
-      ${w9 ? `<p class="section-label">Tax form</p><article class="doc-card"><div class="doc-card__top"><span class="feature__ic">${ic('doc')}</span><div><h3>Form W-9</h3><p>Download it, fill it out and hand it to the office. We don&rsquo;t collect Social Security numbers online.</p></div></div>
-        <div class="doc-card__actions"><a class="btn" href="/doc.html?file=w9">Open the W-9</a></div></article>` : ''}</div>`;
+      ${w9 ? '<p class="muted" style="margin-top:14px">The W-9 is part of the Employee packet: you fill it in and sign it there. Your number is encrypted, and only the office sees all of it.</p>' : ''}</div>`;
   }
 
   // ------------------------------------------------------------------ post an update (team)

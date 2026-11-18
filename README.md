@@ -33,7 +33,7 @@ O domínio está registrado no **Wix** (renova em julho/2027) e o DNS fica no **
 
 1. **Volume** montado em `/data` e a variável `DATA_DIR=/data` (sem isso, tudo some a cada deploy).
 2. **Conta master:** `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `ADMIN_NAME`. A conta é criada já com essa senha e tem acesso total. Ninguém mais consegue desativar, mudar ou gerar link de login pra ela. Se esquecer a senha, troque o `ADMIN_PASSWORD` no Railway e faça o deploy.
-3. **Admins:** `ADMIN_EMAILS` com uma lista separada por vírgula, no formato `email:Nome`. Exemplo: `randy@winningrealty.com:Randy Gager,jenna@winningrealty.com:Jenna Gager`. Cada um vira conta office (acesso total) e recebe o convite por email uma vez. Se o email falhar, o link aparece nos logs do deploy no Railway. 
+3. **Admins:** `ADMIN_EMAILS` com uma lista separada por vírgula, no formato `email:Nome`. Exemplo: `owner@example.com:Owner Name,manager@example.com:Manager Name`. Cada um vira conta office (acesso total) e recebe o convite por email uma vez. Se o email falhar, o link aparece nos logs do deploy no Railway. 
 4. **Email (convites, pedidos de assinatura, relatórios de horas).** Usa o mesmo Gmail do Winning App, com estas variáveis:
    - `GMAIL_USER`: o mesmo valor do Winning App;
    - `GMAIL_APP_PASSWORD`: o mesmo valor do Winning App;

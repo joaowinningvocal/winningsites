@@ -16,7 +16,14 @@
   let pad = null;
   let ranch = {}; // the instructor and insurance details the office filled in (riding forms)
   // Blanks that are check boxes on paper (same as CHECKBOXES in lib/docs.js)
-  const CHECKBOXES = { iConfirmed: ['Yes', 'No'], photo: ['I consent', 'I do not consent'] };
+  const W9_CLASSES = ['Individual/sole proprietor or single-member LLC', 'C Corporation', 'S Corporation', 'Partnership', 'Trust/estate', 'Limited liability company', 'Other'];
+  const CHECKBOXES = { iConfirmed: ['Yes', 'No'], photo: ['I consent', 'I do not consent'], w9Class: W9_CLASSES, w9TinType: ['Social Security number', 'Employer identification number'] };
+  // The W-9 number as it reads on the form while typing (the server encrypts it when signed)
+  const tinText = (v, type) => {
+    const d = String(v || '').replace(/[^0-9]/g, '');
+    if (d.length !== 9) return '';
+    return /^Employer/.test(type || '') ? `${d.slice(0, 2)}-${d.slice(2)}` : `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+  };
   const DRAFT = () => 'wr-sign-' + doc.id;
   const PERSON_KEYS = ['name', 'email', 'cell', 'homePhone', 'street', 'city', 'state', 'zip'];
 
@@ -74,6 +81,9 @@
         ${f.options.map((o, i) => `<label class="choice"><input type="radio" name="${esc(f.key)}" value="${esc(o)}"${i === 0 ? req : ''}><span>${esc(o)}</span></label>`).join('')}</fieldset>`;
     }
     const type = { email: 'email', tel: 'tel', date: 'date' }[f.type] || 'text';
+    if (f.type === 'tin') {
+      return `<div class="${cls}"${show}><label for="${id}">${esc(f.label)}${opt}</label><input id="${id}" name="${esc(f.key)}" type="text" inputmode="numeric" autocomplete="off" maxlength="11" placeholder="${esc(f.placeholder || '')}"${req}></div>`;
+    }
     const ac = { name: 'name', email: 'email', cell: 'tel', street: 'street-address', city: 'address-level2', state: 'address-level1', zip: 'postal-code' }[f.key];
     const control = f.type === 'textarea'
       ? `<textarea id="${id}" name="${esc(f.key)}" rows="2"${req}></textarea>`
@@ -84,7 +94,7 @@
   function sectionHtml(s, i) {
     const body = `<div class="fgrid">${s.fields.map(fieldHtml).join('')}</div>`;
     if (s.collapsed) return `<details class="fsec"><summary>${esc(s.title)} <small class="opt">optional</small></summary>${body}</details>`;
-    return `<section class="fsec"><h3><span class="num">${i + 2}</span>${esc(s.title)}${s.optional ? ' <small class="opt">optional</small>' : ''}</h3>${body}
+    return `<section class="fsec"><h3><span class="num">${i + 2}</span>${esc(s.title)}${s.optional ? ' <small class="opt">optional</small>' : ''}</h3>${s.note ? `<p class="muted fsec-note">${esc(s.note)}</p>` : ''}${body}
       ${s.id === 'person' && doc.minor ? `
         <label class="choice minor-toggle"><input type="checkbox" name="__minor"><span>${esc(doc.minor.label)}<small>A parent or guardian fills this out and signs.</small></span></label>
         <div class="fgrid" id="guardian" hidden><div class="field w-full"><label for="f-guardian">Parent or guardian&rsquo;s full legal name</label><input id="f-guardian" name="__guardian" autocomplete="off"></div></div>` : ''}</section>`;
@@ -169,6 +179,9 @@
     const all = { ...ranch, ...v, cityStateZip, fullAddress: [v.street, cityStateZip].filter(Boolean).join(', '),
       date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) };
     if (/^\d{4}-\d{2}-\d{2}$/.test(all.dob || '')) { const [y, m, d] = all.dob.split('-'); all.dob = `${m}/${d}/${y}`; }
+    all.w9TinShown = tinText(v.w9Tin, v.w9TinType);
+    all.w9BackupText = v.w9Backup === 'Yes' ? 'Item 2 is crossed out: the IRS has notified me that I am currently subject to backup withholding.' : v.w9Backup === 'No' ? 'Item 2 applies (not subject to backup withholding).' : '';
+    all.w9ClassDetail = v.w9Class === 'Limited liability company' && v.w9Llc ? `Tax classification: ${String(v.w9Llc).toUpperCase()}` : v.w9Class === 'Other' && v.w9Other ? `Other: ${v.w9Other}` : '';
     for (const [k, opts] of Object.entries(CHECKBOXES)) if (all[k]) all[k] = opts.map((o) => `${o === all[k] ? '☒' : '☐'} ${o}`).join('   ');
     root.querySelectorAll('#reader [data-fill]').forEach((el) => {
       if (el.dataset.line === undefined) el.dataset.line = el.textContent;
@@ -239,7 +252,8 @@
       const { user } = await (await fetch(API + '/auth/me')).json();
       if (!user) return;
       const set = (id, v) => { const el = $('#' + id); if (el && !el.value && v) el.value = v; };
-      set(doc.signedByGuardian ? 'f-guardianName' : 'f-name', user.name); set('f-email', user.email); set('f-cell', user.phone);
+      set(doc.signedByGuardian ? 'f-guardianName' : 'f-name', user.name);
+      set('f-w9Name', user.name); set('f-email', user.email); set('f-cell', user.phone);
       if (doc.id === 'boarding' && user.role === 'owner') {
         const { horses } = await (await fetch(API + '/my/horses')).json();
         if (horses.length === 1) set('f-horseName', horses[0].name);

@@ -11,7 +11,8 @@ const { createStore } = require('../lib/store');
 const { createAuth, rateLimit } = require('../lib/auth');
 const { seedStalls, seedDemo, seedReviewAccounts, STALL_SIZE } = require('../lib/ranch-seed');
 const { MAP, SHAPES, AREAS } = require('../lib/ranch-layout');
-const { DOCS, docById, allFields, fillValues, FILL_PARTS, INSTRUCTOR_FIELDS, INSTRUCTOR_DEFAULTS } = require('../lib/docs');
+const { DOCS, docById, allFields, fillValues, FILL_PARTS, INSTRUCTOR_FIELDS, INSTRUCTOR_DEFAULTS, tinText } = require('../lib/docs');
+const secret = require('../lib/secret');
 const mailer = require('../lib/mailer');
 
 const IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif' };
@@ -409,6 +410,14 @@ module.exports = function ranchRouter({ dataDir }) {
       const v = shown && typeof input[f.key] === 'string' ? input[f.key].trim().slice(0, f.type === 'textarea' ? 2000 : (f.max || 300)) : '';
       if (f.required && shown && !v) { errors.push(`Fill in “${f.label}”.`); continue; }
       if (!v) continue;
+      if (f.type === 'tin') {
+        // W-9 number: 9 digits, stored encrypted with the last 4 kept apart for the masked copies
+        const d = v.replace(/\D/g, '');
+        if (d.length !== 9 || /^(\d)\1{8}$/.test(d)) { errors.push(`Check “${f.label}”: it has 9 digits.`); continue; }
+        fields[f.key] = secret.seal(dataDir, d);
+        fields[f.key + 'Last4'] = d.slice(5);
+        continue;
+      }
       if (f.type === 'email' && !validEmail(v)) errors.push('Check the email address.');
       else if (f.type === 'date' && !isDate(v)) errors.push(`Check the date in “${f.label}”.`);
       else if (f.type === 'choice' && !f.options.includes(v)) errors.push(`Pick an option for “${f.label}”.`);
@@ -467,7 +476,15 @@ module.exports = function ranchRouter({ dataDir }) {
     const e = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const when = (iso) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'long', timeStyle: 'short' }) + ' (Las Vegas time)';
     // The document's marked blanks get what was filled in and the drawn signature; anything else filled in is listed after it
-    const vals = fillValues(w.fields, w.signedAt);
+    // The W-9 number: all of it on the office's copy, the last 4 anywhere else
+    const tinFull = w.fields.w9Tin && forStaff ? secret.open(dataDir, w.fields.w9Tin) : null;
+    const shownFields = { ...w.fields };
+    if (w.fields.w9Tin) {
+      shownFields.w9Tin = tinFull ? tinText(tinFull, w.fields.w9TinType) : tinText('00000' + (w.fields.w9TinLast4 || ''), w.fields.w9TinType, true);
+      shownFields.w9TinShown = shownFields.w9Tin;
+    }
+    delete shownFields.w9TinLast4;
+    const vals = fillValues(shownFields, w.signedAt);
     const shown = new Set();
     const filledHtml = html.replace(/<span class="blank" data-fill="(\w+)">[^<]*<\/span>/g, (m, k) => {
       if (k === 'signature') return sig ? `<img class="sig-inline" alt="Signature of ${e(w.signerName)}" src="data:image/png;base64,${sig}">` : m;
@@ -476,7 +493,7 @@ module.exports = function ranchRouter({ dataDir }) {
       return `<span class="filled">${e(vals[k])}</span>`;
     });
     const sections = (doc ? doc.sections : []).map((sec) => {
-      const rows = sec.fields.filter((f) => w.fields[f.key] && !shown.has(f.key)).map((f) => `<tr><th>${e(f.label)}</th><td>${e(w.fields[f.key])}</td></tr>`).join('');
+      const rows = sec.fields.filter((f) => shownFields[f.key] && !shown.has(f.key)).map((f) => `<tr><th>${e(f.label)}</th><td>${e(shownFields[f.key])}</td></tr>`).join('');
       return rows ? `<h3>${e(sec.title)}</h3><table>${rows}</table>` : '';
     }).join('');
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -1365,7 +1382,7 @@ module.exports = function ranchRouter({ dataDir }) {
     res.status(204).end();
   });
 
-  // ---- admins from Railway: ADMIN_EMAILS="randy@winningrealty.com:Randy Gager, jenna@winningrealty.com:Jenna Gager"
+  // ---- admins from Railway: ADMIN_EMAILS="owner@example.com:Owner Name, manager@example.com:Manager Name"
   // Each one becomes an office account (full access) and gets an invite email once.
   // If email isn't working yet, the invite link is printed in the Railway deploy logs instead.
   const baseUrl = (process.env.APP_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '')).replace(/\/$/, '');
