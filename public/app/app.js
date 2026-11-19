@@ -82,6 +82,7 @@
     document.documentElement.dataset.theme = localStorage.getItem('wr-app-theme') || 'ranch';
     const invite = location.hash.match(/^#\/invite\/(.+)$/);
     if (invite) return inviteView(decodeURIComponent(invite[1]));
+    hookShares();
     let meRes = {};
     try { meRes = await api('GET', '/auth/me'); S.me = meRes.user; } catch (_) { S.me = null; }
     if (!S.me) return login();
@@ -97,8 +98,61 @@
     $('#menu-dash').hidden = !isStaff();
     paintSoundMenu();
     route();
+    if (pendingShare()) shareSheet();
     clearInterval(S.poll);
     S.poll = setInterval(() => { if (!document.hidden) refreshCounts(); }, 15000);
+  }
+
+  // ------------------------------------------------------------------ shared from another app (Randy: the share sheet)
+  // The store app's share extension (iPhone) or share intent (Android) opens winningranch://share?url=…&text=…
+  // through the Capacitor App plugin; the person picks a chat and the message box gets the link, ready to send.
+  const SHARE_KEY = 'wr-share-pending';
+  function shareText(u) {
+    try {
+      const x = new URL(u);
+      if (x.protocol !== 'winningranch:' || (x.host || x.pathname.replace(/^\/+/, '')) !== 'share') return null;
+      const url = (x.searchParams.get('url') || '').trim(), text = (x.searchParams.get('text') || '').trim(), subject = (x.searchParams.get('subject') || '').trim();
+      const parts = [];
+      if (subject && !text.includes(subject)) parts.push(subject);
+      if (text) parts.push(text);
+      if (url && !text.includes(url)) parts.push(url);
+      return parts.join('\n').slice(0, 3000) || null;
+    } catch (_) { return null; }
+  }
+  const pendingShare = () => { try { return sessionStorage.getItem(SHARE_KEY); } catch (_) { return null; } };
+  function takeShare(u) {
+    const msg = shareText(u);
+    if (!msg) return;
+    try {
+      if (sessionStorage.getItem('wr-share-done') === u) return; // the same launch link again after a reload
+      sessionStorage.setItem('wr-share-done', u);
+      sessionStorage.setItem(SHARE_KEY, msg);
+    } catch (_) { S.sharePending = msg; }
+    if (S.me) shareSheet();
+  }
+  function hookShares() {
+    const C = window.Capacitor;
+    const app = C && C.Plugins && C.Plugins.App;
+    if (!app || S.shareHooked) return;
+    S.shareHooked = true;
+    try { app.addListener('appUrlOpen', (e) => takeShare(e && e.url)); } catch (_) { /* older app build */ }
+    try { app.getLaunchUrl().then((r) => { if (r && r.url) takeShare(r.url); }).catch(() => {}); } catch (_) {}
+  }
+  async function shareSheet() {
+    const msg = pendingShare() || S.sharePending;
+    if (!msg || !S.me) return;
+    const drop = () => { try { sessionStorage.removeItem(SHARE_KEY); } catch (_) {} S.sharePending = null; };
+    if (S.viewAs) { drop(); toast('Stop the preview to share something.'); return; }
+    if (!inChats()) { drop(); toast('Messages aren’t part of your app.'); return; }
+    let chats;
+    try { ({ chats } = await api('GET', '/chats')); } catch (ex) { toast(ex.message); return; }
+    openSheet(`<h2>Share to…</h2><p class="share-preview">${esc(msg)}</p>
+      ${chats.map((c) => `<button class="chat-row" type="button" data-share="${esc(c.id)}"><span class="avatar">${esc((c.title || '?').slice(0, 1))}</span><span class="meta"><b>${esc(c.title)}</b><span>${esc(c.about || (c.last ? c.last.text : ''))}</span></span></button>`).join('') || '<p class="muted">No chats yet.</p>'}`, (sheet) => {
+      sheet.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => {
+        S.prefill = msg; drop(); sheet.close();
+        location.hash = '#/chat/' + b.dataset.share;
+      }; });
+    });
   }
 
   // ------------------------------------------------------------------ "See the app as…" (office): a read-only look at someone's app
@@ -503,6 +557,7 @@
         <textarea id="text" rows="1" placeholder="Message" aria-label="Message" autocapitalize="sentences" enterkeyhint="send"></textarea>
         <button class="send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-3-7z"/></svg></button></form></div>`;
     const box = $('#msgs'), ta = $('#text');
+    if (S.prefill) { ta.value = S.prefill; S.prefill = null; setTimeout(() => { ta.dispatchEvent(new Event('input')); ta.focus(); }, 0); }
 
     // ---- scrolling: stay at the newest message unless they scrolled up to read
     const nearBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 140;

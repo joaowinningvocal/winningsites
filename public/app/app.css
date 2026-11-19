@@ -381,3 +381,6 @@ body.previewing .msg-day { top: calc(162px + var(--sat)); }
 .preview-bar { height: calc(34px + var(--sat)); min-height: 0; padding: var(--sat) 12px 0; font-size: .82rem; white-space: nowrap; }
 .preview-bar span { overflow: hidden; text-overflow: ellipsis; }
 .preview-bar button { padding: 4px 12px; }
+
+/* Shared from another app: the picker */
+.share-preview { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 12px; padding: 10px 12px; margin: 10px 0 12px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; font-size: .92rem; }
