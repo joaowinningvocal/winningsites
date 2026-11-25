@@ -503,6 +503,25 @@
   // PDFs open in the app's viewer (it has a Close button); other documents open in a new tab
   const fileHref = (f) => (/\.pdf$/i.test(f.name || '') ? `/doc.html?src=${encodeURIComponent(f.url)}&title=${encodeURIComponent(f.name)}` : f.url);
 
+  // Link preview cards (like the Winning App): the first link in a message gets a card with the page's picture,
+  // site and title; a video page gets a play mark. Pages without sharing tags get no card.
+  const LP = new Map();
+  const linkPreviewFor = (url) => {
+    if (!LP.has(url)) LP.set(url, api('GET', '/link-preview?url=' + encodeURIComponent(url)).catch(() => null));
+    return LP.get(url);
+  };
+  function fillLinkCard(card, url, onShown) {
+    linkPreviewFor(url).then((d) => {
+      if (!card.isConnected) return;
+      if (!d || !(d.title || d.image || d.description)) { card.remove(); return; }
+      card.innerHTML = `${d.image ? `<span class="lp-media"><img class="lp-img" src="${esc(d.image)}" alt="" referrerpolicy="no-referrer" loading="lazy">${d.video ? '<span class="lp-play" aria-hidden="true">▶</span>' : ''}</span>` : ''}<span class="lp-body"><span class="lp-site">${esc(d.site || d.host || '')}</span>${d.title ? `<b class="lp-title">${esc(d.title)}</b>` : ''}${d.description ? `<span class="lp-desc">${esc(d.description)}</span>` : ''}</span>`;
+      const im = card.querySelector('.lp-img');
+      if (im) im.onerror = () => { const m = card.querySelector('.lp-media'); if (m) m.remove(); };
+      card.hidden = false;
+      if (onShown) onShown();
+    });
+  }
+
   function loadFailed(ex, retry) {
     view.innerHTML = `<div class="wrap"><div class="empty">${esc(ex.message || 'That didn’t load.')}<br><button class="btn" type="button" id="retry" style="margin-top:12px">Try again</button></div></div>`;
     $('#retry').onclick = () => retry();
@@ -594,11 +613,15 @@
         const gallery = imgs.length ? `<div class="msg-gallery g${Math.min(imgs.length, 3)}">${imgs.map((x, i) => `<img class="msg-img" src="${esc(x.url)}" alt="Photo ${i + 1} of ${imgs.length}" data-full="${esc(x.url)}" loading="lazy">`).join('')}</div>` : '';
         const videos = vids.map((x) => `<video src="${esc(x.url)}" controls playsinline preload="metadata"></video>`).join('');
         const docs = files.map((x) => `<a class="msg-file" href="${esc(fileHref(x))}"${/\.pdf$/i.test(x.name || '') ? '' : ' target="_blank" rel="noopener"'}><span class="fi" aria-hidden="true">📄</span><span class="fn"><b>${esc(x.name)}</b><small>${esc(fmtSize(x.size))} · Tap to open</small></span></a>`).join('');
+        const firstUrl = (String(m.text || '').match(URL_RX) || [])[0];
+        const linkCard = firstUrl ? `<a class="link-card" hidden data-url="${esc(fullUrl(firstUrl))}" href="${esc(fullUrl(firstUrl))}" target="_blank" rel="noopener noreferrer" aria-label="Open link"></a>` : '';
         const reacts = aggregate(m.reactions);
-        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble${m.mentionsMe ? ' mentions-me' : ''}">${from}${q}${gallery}${videos}${docs}${m.text ? `<div class="msg-text">${richText(m.text, m.mentions)}</div>` : ''}${when}</div>
+        row.innerHTML = `<div class="msg-wrap"><div class="msg-bubble${m.mentionsMe ? ' mentions-me' : ''}">${from}${q}${gallery}${videos}${docs}${m.text ? `<div class="msg-text">${richText(m.text, m.mentions)}</div>` : ''}${linkCard}${when}</div>
           ${reacts ? `<button type="button" class="msg-reacts" aria-label="Reactions: ${esc(reacts.names)}">${reacts.html}</button>` : ''}</div>`;
         const rb = row.querySelector('.msg-reacts');
         if (rb) rb.onclick = () => toast(reacts.names.replace(/\n/g, ' · '));
+        const lc = row.querySelector('.link-card');
+        if (lc) { fillLinkCard(lc, lc.dataset.url, () => { if (T.pin && S.thread === T) toBottom(); }); lc.addEventListener('click', (e) => e.stopPropagation()); }
         const qb = row.querySelector('.msg-quote');
         if (qb) qb.onclick = (e) => { e.stopPropagation(); jumpTo(qb.dataset.jump); };
       }
@@ -814,7 +837,7 @@
       el.addEventListener('contextmenu', (e) => { e.preventDefault(); cancel(); openMenu(m, el); });
       if (m.deleted) return;
       el.addEventListener('pointerup', (e) => {
-        if (e.button > 0 || e.target.closest('a, button.msg-quote, video, img')) { lastTap = 0; return; }
+        if (e.button > 0 || e.target.closest('a, button.msg-quote, video, img, .link-card')) { lastTap = 0; return; }
         const now = Date.now();
         if (now - lastTap < 350) { lastTap = 0; clickBlock = now + 500; react(m, '❤️'); } else lastTap = now;
       });

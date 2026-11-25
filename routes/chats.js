@@ -259,6 +259,77 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     };
   }
 
+  // ---------------------------------------------------------------- link previews (like the Winning App and Messenger)
+  // Reads the page's sharing tags (Open Graph / Twitter, the ones Facebook and WhatsApp use): title, description,
+  // image, site. Only public http(s) addresses (no private or internal network, checked on every redirect),
+  // 6 seconds, the first 600 KB, cached 12 hours.
+  const LP_CACHE = new Map();
+  const dnsP = require('dns').promises, netMod = require('net');
+  function privateIp(ip) {
+    if (netMod.isIPv4(ip)) { const [a, b] = ip.split('.').map(Number); return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224; }
+    const x = ip.toLowerCase();
+    return x === '::1' || x === '::' || x.startsWith('fc') || x.startsWith('fd') || x.startsWith('fe80') || x.startsWith('::ffff:127.') || x.startsWith('::ffff:10.') || x.startsWith('::ffff:192.168.');
+  }
+  async function publicUrl(u) {
+    let url;
+    try { url = new URL(u); } catch (_) { return null; }
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password || (url.port && !['80', '443'].includes(url.port))) return null;
+    try { const addrs = await dnsP.lookup(url.hostname, { all: true }); if (!addrs.length || addrs.some((a) => privateIp(a.address))) return null; } catch (_) { return null; }
+    return url;
+  }
+  const decodeEnt = (t) => String(t || '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+  async function linkPreview(raw) {
+    const key = String(raw).slice(0, 2000);
+    const hit = LP_CACHE.get(key);
+    if (hit && hit.exp > Date.now()) return hit.data;
+    let url = await publicUrl(key), html = '', finalUrl = key;
+    for (let hop = 0; url && hop < 4; hop++) {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 6000);
+      try {
+        // Facebook's own preview robot: Facebook, Instagram and most sites hand it the sharing tags
+        const r = await fetch(url, { redirect: 'manual', signal: ctl.signal, headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'en-US,en;q=0.8' } });
+        if (r.status >= 300 && r.status < 400 && r.headers.get('location')) { url = await publicUrl(new URL(r.headers.get('location'), url).toString()); clearTimeout(t); continue; }
+        finalUrl = url.toString();
+        if (r.ok && /html/i.test(r.headers.get('content-type') || '')) {
+          const reader = r.body.getReader();
+          const chunks = [];
+          let n = 0;
+          while (n < 600 * 1024) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); n += value.length; }
+          try { ctl.abort(); } catch (_) { /* done reading */ }
+          html = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
+        }
+      } catch (_) { /* unreachable: no card */ } finally { clearTimeout(t); }
+      break;
+    }
+    const meta = (names) => {
+      for (const nm of names) {
+        const tag = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${nm}["'][^>]*>`, 'i'));
+        if (tag) { const c = tag[0].match(/content=["']([^"']*)["']/i); if (c && c[1].trim()) return decodeEnt(c[1]); }
+      }
+      return '';
+    };
+    let host = '';
+    try { host = new URL(finalUrl).hostname.replace(/^www\./, ''); } catch (_) { /* keep empty */ }
+    let image = meta(['og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src']);
+    try { if (image) image = new URL(image, finalUrl).toString(); } catch (_) { image = ''; }
+    if (image && !/^https:/i.test(image)) image = ''; // the app is https: no insecure images
+    const video = !!meta(['og:video', 'og:video:url', 'og:video:secure_url', 'twitter:player']) || /^video/i.test(meta(['og:type']));
+    const data = {
+      url: key, title: (meta(['og:title', 'twitter:title']) || decodeEnt((html.match(/<title[^>]*>([^<]{1,300})<\/title>/i) || [])[1] || '')).slice(0, 200),
+      description: meta(['og:description', 'twitter:description', 'description']).slice(0, 300), image, video, site: (meta(['og:site_name']) || host).slice(0, 80), host,
+    };
+    if (LP_CACHE.size > 800) LP_CACHE.delete(LP_CACHE.keys().next().value);
+    LP_CACHE.set(key, { data, exp: Date.now() + (data.title || data.image ? 12 : 1) * 3600 * 1000 });
+    return data;
+  }
+  r.get('/link-preview', auth.requireUser, async (req, res) => {
+    const url = String(req.query.url || '').trim();
+    if (!/^https?:\/\//i.test(url) || url.length > 2000) return res.status(400).json({ error: 'Bad link.' });
+    try { res.set('Cache-Control', 'private, max-age=3600'); res.json(await linkPreview(url)); } catch (_) { res.json({ url, title: '', description: '', image: '', site: '' }); }
+  });
+
   // Who can be @mentioned here (the composer's suggestions)
   r.get('/chats/:id/mentions', auth.requireUser, (req, res) => {
     const c = db.chats.find((x) => x.id === req.params.id);
