@@ -384,11 +384,26 @@
         <button class="btn ${s.onBreak ? '' : 'btn--red'}" type="button" data-act="out">Clock out</button></div><p class="err" id="shift-err" role="alert"></p></div>`;
   }
 
+  // Location blocked: say exactly where to allow it (Carmen, iPhone + Safari: "it's not an app on my list")
+  function locationHelp() {
+    const ua = navigator.userAgent || '';
+    const C = window.Capacitor;
+    const nativeApp = !!(C && C.isNativePlatform && C.isNativePlatform());
+    if (/iPhone|iPad|iPod/.test(ua)) {
+      if (nativeApp) return 'Location is off for Winning Ranch. On your iPhone: Settings → Winning Ranch → Location → While Using the App, and turn on Precise Location. Then try again.';
+      return 'Location is blocked. On your iPhone: Settings → Privacy & Security → Location Services (on) → Safari Websites → While Using the App, with Precise Location on. Then in Safari tap aA next to the address → Website Settings → Location → Allow, and try again.';
+    }
+    if (/Android/.test(ua)) {
+      if (nativeApp) return 'Location is off for Winning Ranch. On your phone: Settings → Apps → Winning Ranch → Permissions → Location → Allow only while using the app. Then try again.';
+      return 'Location is blocked. In Chrome tap the icon left of the address → Permissions → Location → Allow, and make sure Location is on in your phone settings. Then try again.';
+    }
+    return 'Location is blocked for this site. Allow location in your browser (the icon next to the address), then try again.';
+  }
   function locate() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) return reject(new Error('This phone can’t share location.'));
       navigator.geolocation.getCurrentPosition((p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
-        (e) => reject(new Error(e.code === 1 ? 'Location is blocked. Allow it for this app in Settings, then try again.' : 'Couldn’t get your location. Try again outside.')),
+        (e) => reject(new Error(e.code === 1 ? locationHelp() : 'Couldn’t get your location. Make sure Location Services are on, step outside, and try again.')),
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
     });
   }
