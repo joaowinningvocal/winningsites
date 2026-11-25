@@ -5,7 +5,7 @@
 const H = require('../lib/hours');
 const { sendEmail, configured } = require('../lib/mailer');
 
-module.exports = function shifts({ staff, db, store, newId, now, str }) {
+module.exports = function shifts({ staff, db, store, newId, now, str, push }) {
   if (!db.shifts) db.shifts = [];
   if (!db.reportLog) db.reportLog = { daily: {}, weekly: {} };
   db.settings.timeclock = Object.assign({ geo: null, radius: 150, reportTo: '', dailyTime: '07:00', weekStart: 1, checklistText: H.DEFAULT_CHECKLIST }, db.settings.timeclock || {});
@@ -310,6 +310,7 @@ module.exports = function shifts({ staff, db, store, newId, now, str }) {
       const text = `⏰ ${who} has been clocked in for ${hours} hours without clocking out (since ${H.fmtTime(s.in.at)}).`;
       const mgmt = (db.chats || []).find((c) => c.type === 'channel' && c.key === 'management');
       if (mgmt) db.messages.push({ id: newId(), chatId: mgmt.id, userId: null, kind: 'system', text, media: [], at: now() });
+      if (mgmt && push) push.sendMany(mgmt.members || [], { title: 'Barn Management', body: text, data: { type: 'alert', chatId: mgmt.id } });
       console.log('[shifts]', text);
       if (tc().reportTo && configured() === 'email') {
         const r = await sendEmail({ to: tc().reportTo, subject: `${who}: ${hours} hours on the clock`,

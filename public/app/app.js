@@ -99,8 +99,57 @@
     paintSoundMenu();
     route();
     if (pendingShare()) shareSheet();
+    if (!S.viewAs) startPush();
     clearInterval(S.poll);
     S.poll = setInterval(() => { if (!document.hidden) refreshCounts(); }, 15000);
+  }
+
+  // ------------------------------------------------------------------ phone notifications (store app, like the Winning App)
+  // Firebase Cloud Messaging through @capacitor-firebase/messaging (registerPlugin works with the remote web app).
+  // After login: ask permission once, send the phone's token to the server; tapping a notification opens its chat.
+  // Android plays the neigh on its own channel; iPhone gets the sound name in each notification (neigh.wav in the app).
+  const pushPlugin = () => {
+    const C = window.Capacitor;
+    if (!C || !C.isNativePlatform || !C.isNativePlatform()) return null;
+    try { if (C.registerPlugin) return C.registerPlugin('FirebaseMessaging'); } catch (_) { /* older app */ }
+    return (C.Plugins && C.Plugins.FirebaseMessaging) || null;
+  };
+  async function startPush() {
+    const m = pushPlugin();
+    if (!m || S.pushStarted) return;
+    S.pushStarted = true;
+    const platform = (window.Capacitor.getPlatform && window.Capacitor.getPlatform()) || '';
+    const send = (token) => {
+      if (!token) return;
+      try { localStorage.setItem('wr-push-token', token); } catch (_) {}
+      api('POST', '/push/register', { token, platform }).catch(() => {});
+    };
+    try {
+      m.addListener('tokenReceived', (e) => send(e && e.token));
+      m.addListener('notificationActionPerformed', (e) => {
+        const d = (e && e.notification && e.notification.data) || {};
+        if (d.chatId) location.hash = '#/chat/' + d.chatId;
+      });
+      if (platform === 'android' && m.createChannel) m.createChannel({ id: 'neigh', name: 'Winning Ranch', description: 'Messages and alerts from the ranch', importance: 5, sound: 'neigh', vibration: true, visibility: 1 }).catch(() => {});
+      const perm = await m.requestPermissions();
+      if (!perm || perm.receive !== 'granted') return;
+      const r = await m.getToken();
+      send(r && r.token);
+    } catch (_) { S.pushStarted = false; }
+  }
+  // Coming back to the app: clear the old banners and let the server set the icon number again
+  let lastIconSync = 0;
+  document.addEventListener('visibilitychange', () => {
+    const m = pushPlugin();
+    if (!m || document.hidden || !S.me || S.viewAs || Date.now() - lastIconSync < 10000) return;
+    lastIconSync = Date.now();
+    try { if (m.removeAllDeliveredNotifications) m.removeAllDeliveredNotifications().catch(() => {}); } catch (_) {}
+    api('POST', '/push/badge').catch(() => {});
+  });
+  async function stopPush() {
+    let token = '';
+    try { token = localStorage.getItem('wr-push-token') || ''; localStorage.removeItem('wr-push-token'); } catch (_) {}
+    if (token) await api('POST', '/push/unregister', { token }).catch(() => {});
   }
 
   // ------------------------------------------------------------------ shared from another app (Randy: the share sheet)
@@ -1261,7 +1310,7 @@
       return;
     }
     if (b.dataset.menu === 'theme') { const t = document.documentElement.dataset.theme === 'dark' ? 'ranch' : 'dark'; document.documentElement.dataset.theme = t; localStorage.setItem('wr-app-theme', t); }
-    if (b.dataset.menu === 'logout') { await api('POST', '/auth/logout').catch(() => {}); location.hash = ''; location.reload(); }
+    if (b.dataset.menu === 'logout') { await stopPush(); await api('POST', '/auth/logout').catch(() => {}); location.hash = ''; location.reload(); }
     $('#menu').hidden = true;
     if (b.dataset.menu === 'blocked') blockedSheet().catch((ex) => toast(ex.message));
     if (b.dataset.menu === 'delete') deleteAccountSheet();

@@ -40,6 +40,9 @@ module.exports = function ranchRouter({ dataDir }) {
     migrations: {},
   });
   const db = store.data;
+  // Phone notifications (lib/push.js); the icon number comes from the chats, set up further down
+  let chatApiRef = null;
+  const push = require('../lib/push')({ db, store, badgeOf: (u) => (chatApiRef ? chatApiRef.unreadTotal(u) : 0) });
   const auth = createAuth(store);
   const uploads = path.join(dataDir, 'uploads');
   fs.mkdirSync(path.join(uploads, 'public'), { recursive: true });
@@ -308,6 +311,7 @@ module.exports = function ranchRouter({ dataDir }) {
     email: { configured: mailer.configured(), ...mailer.via() }, people: db.users.filter((u) => !u.demo).length,
     commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null, startedAt: STARTED_AT,
   }));
+  r.get('/ops/push', (_req, res) => res.json({ enabled: push.enabled(), phones: db.users.filter((u) => (u.pushTokens || []).length).map((u) => ({ name: u.name, phones: u.pushTokens.map((t) => ({ platform: t.platform, at: t.at, ends: String(t.token).slice(-6) })) })), recent: push.recent() }));
   r.get('/ops/logs', (req, res) => res.json({ lines: require('../lib/oplog').recent({ limit: Number(req.query.limit) || 200, q: req.query.q }) }));
   r.get('/ops/people', (req, res) => {
     const q = String(req.query.q || '').toLowerCase();
@@ -1301,13 +1305,14 @@ module.exports = function ranchRouter({ dataDir }) {
   const boardApi = require('./board')({ staff, db, store, newId, now, str, isDate, stallById, horseInStall, HOLDS });
 
   // ---- time clock (shift, hours, reports)
-  require('./shifts')({ staff, db, store, newId, now, str });
+  require('./shifts')({ staff, db, store, newId, now, str, push });
 
   // ---- weekly AM/PM schedule, take and swap requests
   const scheduleApi = require('./schedule')({ staff, db, store, newId, now, str });
 
   // ---- app: messages and the home screen
-  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse: boardApi.stallOfHorse, docTitle: (id) => (docById(id) || {}).title || id, scheduleSummary: scheduleApi.summary });
+  const chatApi = require('./chats')({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse: boardApi.stallOfHorse, docTitle: (id) => (docById(id) || {}).title || id, scheduleSummary: scheduleApi.summary, push });
+  chatApiRef = chatApi;
 
   // ---- documents: what each person signed, what the ranch asked them to sign
   const mineWaivers = (u) => db.waivers.filter((w) => !w.deletedAt

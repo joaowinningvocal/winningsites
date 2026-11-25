@@ -16,7 +16,7 @@ const fs = require('fs');
 const multer = require('multer');
 const H = require('../lib/hours');
 
-module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse, docTitle, scheduleSummary }) {
+module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, stallById, stallOfHorse, docTitle, scheduleSummary, push }) {
   if (!db.chats) db.chats = [];
   if (!db.messages) db.messages = [];
   if (!db.reads) db.reads = {};
@@ -447,6 +447,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     db.messages.push(m);
     (db.reads[req.user.id] = db.reads[req.user.id] || {})[c.id] = m.at;
     await store.save();
+    notifyMessage(c, m, req.user);
     res.status(201).json({ message: msgOut(req.user, m) });
   });
 
@@ -555,9 +556,42 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     if (!canSee(req.user, c)) return res.status(404).json({ error: 'Chat not found.' });
     const latest = (db.messages.filter((m) => m.chatId === c.id).pop() || {}).at || '';
     const reads = (db.reads[req.user.id] = db.reads[req.user.id] || {});
-    if (!reads[c.id] || reads[c.id] < latest) { reads[c.id] = now(); await store.save(); }
+    if (!reads[c.id] || reads[c.id] < latest) { reads[c.id] = now(); await store.save(); if (push) push.syncBadge(req.user).catch(() => {}); }
     res.json({ ok: true });
   });
+
+  // ---------------------------------------------------------------- phone notifications (the store app)
+  // Everyone else who sees the chat gets a notification with the neigh: "Gabi: stall 4 needs water"; a message that
+  // @mentions them says so in the title. Not to people who blocked the sender, and not to the lesson program.
+  function notifyMessage(c, m, sender) {
+    if (!push || !push.enabled()) return;
+    const text = snippet(m) || 'New message';
+    for (const u of membersOf(c)) {
+      if (u.id === sender.id || (db.blocks[u.id] || []).includes(sender.id)) continue;
+      const mention = (m.mentionIds || []).includes(u.id);
+      const title = titleFor(u, c);
+      push.send(u.id, mention
+        ? { title: `${sender.name} mentioned you`, body: `${title}: ${text}`, data: { type: 'mention', chatId: c.id } }
+        : { title, body: c.type === 'dm' || title === sender.name ? text : `${sender.name}: ${text}`, data: { type: 'message', chatId: c.id } }).catch(() => {});
+    }
+  }
+  // The number on the app icon: unread messages in the chats this person sees
+  function unreadTotal(u) {
+    if (!u || (isStaff(u) && !isTeam(u))) return 0;
+    let n = 0;
+    for (const c of visibleChats(u)) {
+      const seen = lastRead(u, c.id), show = shownTo(u);
+      n += db.messages.filter((m) => m.chatId === c.id && m.userId !== u.id && m.at > seen && m.kind !== 'system' && !m.deletedAt && show(m)).length;
+    }
+    return n;
+  }
+  r.post('/push/register', auth.requireUser, (req, res) => {
+    if (!push || !push.register(req.user, req.body && req.body.token, req.body && req.body.platform)) return res.status(400).json({ error: 'No token.' });
+    push.syncBadge(req.user, true).catch(() => {});
+    res.json({ ok: true, enabled: push.enabled() });
+  });
+  r.post('/push/unregister', auth.requireUser, (req, res) => { if (push) push.unregister(req.user, String((req.body && req.body.token) || '')); res.json({ ok: true }); });
+  r.post('/push/badge', auth.requireUser, (req, res) => { if (push) push.syncBadge(req.user, true).catch(() => {}); res.json({ ok: true }); });
 
   r.get('/chat-media/:file', auth.requireUser, (req, res) => {
     const file = path.basename(req.params.file);
@@ -619,5 +653,5 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     res.json({ ok: true });
   });
 
-  return { postSignRequest };
+  return { postSignRequest, unreadTotal };
 };
