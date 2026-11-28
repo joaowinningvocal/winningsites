@@ -382,11 +382,12 @@
     let body = '';
     if (p === 'owner') {
       body += `<p class="section-label">Your horses</p>` + (h.horses.length ? h.horses.map((x) => `
-        <a class="horse" href="#/horse/${x.id}">
-          <span class="horse__img">${x.cover ? `<img src="${esc(x.cover)}" alt="">` : '<span class="sil"></span>'}</span>
-          <span><h3>${esc(x.name)}${x.fresh ? `<span class="new">${x.fresh} new</span>` : ''}</h3>
-            <p>${esc(x.stall || 'Stall not assigned')}</p>
-            <p>${x.latest ? `${esc(x.latest.caption || 'New photo')} &middot; ${esc(ago(x.latest.at))}` : 'No updates yet'}</p></span>
+        <a class="horse-card${x.fresh ? ' has-new' : ''}" href="#/horse/${x.id}">
+          ${avatar(x, 'horse-card__av')}
+          <span class="horse-card__txt"><span class="horse-card__name">${esc(x.name)}${x.fresh ? `<span class="new">${x.fresh} new</span>` : ''}</span>
+            <span class="horse-card__stall">${esc(x.stall || 'Stall not assigned')}</span>
+            <span class="horse-card__last">${x.latest ? `${esc(x.latest.caption || 'New photo')} &middot; ${esc(ago(x.latest.at))}` : 'No updates yet'}</span></span>
+          ${x.cover ? `<span class="horse-card__cover"><img src="${esc(x.cover)}" alt="" loading="lazy"></span>` : ''}
         </a>`).join('') : '<div class="empty">Once your horse checks in, the team&rsquo;s photos and videos show up here.</div>');
       body += `<p class="section-label">The ranch</p>
         ${feature({ href: '#/messages', icon: 'chat', title: 'Message the ranch', sub: 'Questions, requests, care changes', badge: h.unread || '' })}
@@ -403,6 +404,9 @@
       body += `<p class="section-label">More</p><div class="tiles">${tile('/waivers.html', 'doc', 'Waivers page')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
     } else {
       if (h.shift !== null && h.shift !== undefined) body += shiftCard(h.shift);
+      if (h.ranchHorses && h.ranchHorses.length) {
+        body += `<p class="section-label">Horses at the ranch <small>${h.ranchHorses.length}</small></p><div class="horse-strip">${h.ranchHorses.map((x) => `<a href="#/horse/${x.id}" class="horse-strip__item">${avatar(x, 'horse-strip__av')}<span>${esc(x.name)}</span><small>${esc((x.stall || '').replace(/^Barn stall /, 'Stall ').replace(/^Outdoor stall /, 'Outdoor ') || '—')}</small></a>`).join('')}</div>`;
+      }
       body += `<p class="section-label">Today</p>`;
       if (h.shift) body += feature({ href: '#/checklist', icon: 'check', title: 'Shift checklist', sub: `${h.shift.done.done} of ${h.shift.done.total} done` });
       body += feature({ href: '/admin/#/schedule', icon: 'cal', title: 'Schedule', sub: h.shiftRequests ? `${h.shiftRequests} shift request${h.shiftRequests === 1 ? '' : 's'} to approve` : h.nextShifts && h.nextShifts.length ? `Next: ${h.nextShifts.join(', ')}` : 'AM and PM shifts this week', badge: h.shiftRequests || '' });
@@ -421,8 +425,18 @@
           ${tile('/admin/#/stalls', 'stall', 'Stalls')}${tile('/stalls.html', 'map', 'Ranch map')}${tile('/home.html', 'globe', 'Website')}</div>`;
       }
     }
-    view.innerHTML = `<div class="wrap"><div class="greeting"><p class="eyebrow">${hello()}</p><h1>${esc(first(S.me.name))}</h1></div>${body}</div>`;
+    // The summary under the name: what matters first for this person
+    const fresh = (h.horses || []).reduce((t, x) => t + (x.fresh || 0), 0);
+    const sub = p === 'owner' ? (h.horses.length ? `${fresh ? `${fresh} new update${fresh === 1 ? '' : 's'} · ` : ''}${h.horses.map((x) => x.name).join(', ')} ${h.horses.length === 1 ? 'is' : 'are'} at the ranch` : 'Welcome to Winning Ranch')
+      : `${(h.ranchHorses || []).length || h.horsesOnRanch || 0} horses at the ranch${h.unread ? ` · ${h.unread} unread message${h.unread === 1 ? '' : 's'}` : ''}`;
+    const today = new Date().toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' });
+    view.innerHTML = `<section class="hero"><div class="hero__in"><p class="hero__date">${esc(today)}</p><p class="hero__hello">${hello()}</p><h1>${esc(first(S.me.name))}</h1><p class="hero__sub">${esc(sub)}</p></div></section>
+      <div class="wrap home">${body}</div>`;
   }
+  // A horse's round picture, or its initial on the ranch red when there's none yet
+  const avatar = (x, cls) => (x.photo
+    ? `<span class="${cls} av"><img src="${esc(x.photo)}" alt="" loading="lazy"></span>`
+    : `<span class="${cls} av av--none" aria-hidden="true">${esc((x.name || '?').slice(0, 1))}</span>`);
 
   function shiftCard(s) {
     if (!s) return `<div class="shift-card"><p class="state">You&rsquo;re off the clock</p><div style="margin-top:12px"><button class="btn btn--red btn--big" type="button" data-act="in">Clock in</button></div>
@@ -524,7 +538,14 @@
     api('POST', '/app/seen-updates').then(refreshCounts).catch(() => {});
     let lastDay = '';
     const day = (iso) => new Date(iso).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'short', day: 'numeric' });
-    view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a><h1 style="font-size:2rem">${esc(horse.name)}</h1><p class="muted">${esc([horse.breed, horse.stall].filter(Boolean).join(', '))}</p>
+    view.innerHTML = `<div class="wrap"><a class="back" href="#/home">&lsaquo; Home</a>
+      <section class="horse-head">
+        <span class="horse-head__pic">${avatar(horse, 'horse-head__av')}
+          <button type="button" class="horse-head__cam" id="horse-photo" aria-label="${horse.photo ? 'Change' : 'Add'} ${esc(horse.name)}&rsquo;s picture">${ic('camera')}</button>
+          <input type="file" id="horse-photo-file" accept="image/*" hidden></span>
+        <h1>${esc(horse.name)}</h1>
+        <p class="horse-head__chips">${[horse.breed, horse.stall, `${horse.updates || 0} update${horse.updates === 1 ? '' : 's'}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</p>
+      </section>
       ${horse.careNotes ? `<div class="care-box"><b>Feeding &amp; care</b><p>${esc(horse.careNotes)}</p></div>` : ''}
       ${updates.length ? updates.map((u) => {
         const d = day(u.createdAt); const head = d !== lastDay ? `<p class="day">${esc(d)}</p>` : ''; lastDay = d;
@@ -533,6 +554,37 @@
           ${u.caption ? `<p class="post__text">${esc(u.caption)}</p>` : '<div style="height:10px"></div>'}
           ${imgs.length || vids.length ? `<div class="post__media${imgs.length === 1 && !vids.length ? ' one' : ''}">${imgs.map((m) => `<button type="button" data-full="${esc(m.url)}"><img src="${esc(m.url)}" alt="Photo of ${esc(horse.name)}" loading="lazy"></button>`).join('')}${vids.map((m) => `<video src="${esc(m.url)}" controls playsinline preload="metadata"></video>`).join('')}</div>` : ''}</article>`;
       }).join('') : '<div class="empty" style="margin-top:16px">No updates yet.</div>'}</div>`;
+    const cam = $('#horse-photo'), file = $('#horse-photo-file');
+    if (cam && !S.viewAs) {
+      cam.onclick = () => file.click();
+      file.onchange = async () => {
+        const f = file.files[0];
+        if (!f) return;
+        cam.disabled = true; toast('Saving the picture…');
+        try {
+          const fd = new FormData();
+          fd.append('files', await squareJpeg(f, 800), 'horse.jpg');
+          await upload(`/horses/${id}/photo`, fd);
+          toast(`${horse.name}’s picture is saved`);
+          horseView(id);
+        } catch (ex) { toast(ex.message); cam.disabled = false; }
+      };
+    } else if (cam) cam.hidden = true;
+  }
+  // A picture from the phone, cropped square from the middle and made small (fast to upload, sharp on any screen)
+  function squareJpeg(file, size) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file), im = new Image();
+      im.onload = () => {
+        const side = Math.min(im.naturalWidth, im.naturalHeight), c = document.createElement('canvas');
+        c.width = c.height = Math.min(size, side);
+        c.getContext('2d').drawImage(im, (im.naturalWidth - side) / 2, (im.naturalHeight - side) / 2, side, side, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('Couldn’t read that picture.'))), 'image/jpeg', 0.86);
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Couldn’t read that picture. Try another one.')); };
+      im.src = url;
+    });
   }
 
   // ------------------------------------------------------------------ messages (they work like the Winning App's chats)
@@ -1238,7 +1290,7 @@
   }
 
   // ------------------------------------------------------------------ post an update (team)
-  const QUICK_TAGS = ['✅ Fed', '💧 Watered', '🧹 Stall cleaned', '🧥 Blanket on', '🪰 Fly mask on', '🏇 Turned out'];
+  const QUICK_TAGS = ['✅ Fed', '💧 Watered', '🧹 Stall cleaned', '🧥 Blanket on', '🦟 Fly mask on', '🏇 Turned out'];
   async function postSheet() {
     const { horses } = await api('GET', '/admin/horses');
     const active = horses.filter((x) => x.active !== false).sort((a, b) => a.name.localeCompare(b.name));

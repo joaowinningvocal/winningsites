@@ -219,6 +219,8 @@ module.exports = function ranchRouter({ dataDir }) {
   function canSeeHorse(user, horse) {
     return !!(user && horse && (user.role === 'staff' || horse.ownerId === user.id));
   }
+  // A horse's profile picture (the owner or the team uploads it): its address, or null
+  const horsePhoto = (h) => (h && h.photo ? `/api/ranch/horses/${h.id}/photo?v=${encodeURIComponent(h.photoAt || '')}` : null);
 
   function notify(kind, payload) {
     const url = process.env.BOOKING_WEBHOOK_URL || process.env.CONTACT_WEBHOOK_URL;
@@ -251,6 +253,7 @@ module.exports = function ranchRouter({ dataDir }) {
   });
   const mediaUpload = wrapUpload(uploader('private', { ...IMAGE, ...VIDEO }, 300, 10));
   const photoUpload = wrapUpload(uploader('public', IMAGE, 15, 8));
+  const horsePhotoUpload = wrapUpload(uploader('private', IMAGE, 15, 1));
   const removeFile = (sub, file) => fs.promises.unlink(path.join(uploads, sub, path.basename(file))).catch(() => {});
 
   // ---------------------------------------------------------- router
@@ -663,13 +666,38 @@ module.exports = function ranchRouter({ dataDir }) {
     });
   });
 
+  // ---- a horse's profile picture: the owner or the ranch team sets it; whoever can see the horse sees it
+  r.get('/horses/:id/photo', auth.requireUser, (req, res) => {
+    const h = db.horses.find((x) => x.id === req.params.id);
+    if (!canSeeHorse(req.user, h) || !h.photo) return res.status(404).end();
+    res.set('Cache-Control', 'private, max-age=604800').sendFile(path.join(uploads, 'private', path.basename(h.photo)));
+  });
+  r.post('/horses/:id/photo', auth.requireUser, horsePhotoUpload, async (req, res) => {
+    const h = db.horses.find((x) => x.id === req.params.id);
+    const f = (req.files || [])[0];
+    if (!canSeeHorse(req.user, h)) { if (f) removeFile('private', f.filename); return res.status(404).json({ error: 'Horse not found.' }); }
+    if (!f) return res.status(400).json({ error: req.rejected ? 'That isn’t a photo.' : 'Pick a photo.' });
+    if (h.photo) removeFile('private', h.photo);
+    Object.assign(h, { photo: f.filename, photoAt: now(), photoBy: req.user.name });
+    await store.save();
+    res.json({ photo: horsePhoto(h) });
+  });
+  r.delete('/horses/:id/photo', auth.requireUser, async (req, res) => {
+    const h = db.horses.find((x) => x.id === req.params.id);
+    if (!canSeeHorse(req.user, h)) return res.status(404).json({ error: 'Horse not found.' });
+    if (h.photo) removeFile('private', h.photo);
+    delete h.photo; delete h.photoAt; delete h.photoBy;
+    await store.save();
+    res.status(204).end();
+  });
+
   r.get('/horses/:id/updates', auth.requireUser, (req, res) => {
     const h = db.horses.find((x) => x.id === req.params.id);
     if (!canSeeHorse(req.user, h)) return res.status(404).json({ error: 'Horse not found.' });
     const stall = stallById(boardApi.stallOfHorse(h));
     const ups = db.updates.filter((u) => u.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     res.json({
-      horse: { id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '', ...(req.user.role === 'staff' && h.notes ? { careNotes: h.notes } : {}) }, // the team's feeding notes; owners don't see them
+      horse: { id: h.id, name: h.name, breed: h.breed, arrivedOn: h.arrivedOn, stall: stall ? stall.name : '', photo: horsePhoto(h), updates: ups.length, ...(req.user.role === 'staff' && h.notes ? { careNotes: h.notes } : {}) }, // the team's feeding notes; owners don't see them
       updates: ups.map((u) => ({ id: u.id, caption: u.caption, authorName: u.authorName, createdAt: u.createdAt, media: u.media.map(mediaOut) })),
     });
   });
@@ -1077,6 +1105,7 @@ module.exports = function ranchRouter({ dataDir }) {
           ownerName: (db.users.find((u) => u.id === h.ownerId) || {}).name || h.ownerName || '',
           hasAccount: !!db.users.some((u) => u.id === h.ownerId),
           stallName: (stallById(stallId) || {}).name || '',
+          photo: horsePhoto(h),
           stay: place ? { ref: place.stay.ref, kind: place.stay.kind || 'nightly', from: place.from, to: place.to, now: place.now, ours: !!place.stay.ours } : null,
           updates: db.updates.filter((u) => u.horseId === h.id).length,
         };

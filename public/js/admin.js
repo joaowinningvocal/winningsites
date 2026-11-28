@@ -240,6 +240,7 @@
         <div class="field"><label>Owner&rsquo;s name</label><input name="ownerName" value="${esc(h.hasAccount ? '' : h.ownerName || '')}" placeholder="When they don&rsquo;t have the app yet"></div>
         <div class="field"><label>Breed</label><input name="breed" value="${esc(h.breed || '')}"></div>
         <div class="field"><label>Arrived on</label><input name="arrivedOn" type="date" value="${esc(h.arrivedOn || new Date().toISOString().slice(0, 10))}"></div>
+        ${h.id ? `<div class="field full"><label>Picture</label><div class="btn-row" style="align-items:center">${h.photo ? `<img class="horse-thumb" src="${esc(h.photo)}" alt="">` : ''}<label class="btn btn--sm btn--ghost" style="cursor:pointer">${h.photo ? 'Change picture' : 'Add a picture'}<input type="file" accept="image/*" data-horse-photo="${h.id}" hidden></label></div></div>` : ''}
         <div class="field full"><label>Feeding and care notes (the team sees these; owners don&rsquo;t)</label><textarea name="notes" rows="3" placeholder="AM: 2 flakes Bermuda + soaked cubes. PM: alfalfa. Supplements in his bin.">${esc(h.notes || '')}</textarea></div>
         <p class="inline-error full" data-err></p>
         <div class="form-actions full">
@@ -253,7 +254,7 @@
       + (s.now ? (s.to ? `, leaves ${fmtDay(s.to)}` : '') : `, arrives ${fmtDay(s.from)}`);
     const card = (h) => h.id === editId ? `<article class="card">${form(h)}</article>` : `
       <article class="card">
-        <div class="card__top"><h3>${esc(h.name)}</h3><span class="muted">${esc(h.stallName || 'No stall')}</span></div>
+        <div class="card__top">${h.photo ? `<img class="horse-thumb" src="${esc(h.photo)}" alt="">` : ''}<h3>${esc(h.name)}</h3><span class="muted">${esc(h.stallName || 'No stall')}</span></div>
         <dl>${h.stay ? `<dt>Stay</dt><dd>${esc(stayText(h.stay))} <a class="textlink" href="#/board">(${esc(h.stay.ref)})</a></dd>` : ''}
           <dt>Owner</dt><dd>${esc(h.ownerName || 'None')}${h.ownerName && !h.hasAccount ? ' <small class="muted">(no app account yet)</small>' : ''}</dd>
           <dt>Updates</dt><dd>${h.updates}</dd>${h.breed ? `<dt>Breed</dt><dd>${esc(h.breed)}</dd>` : ''}
@@ -285,6 +286,24 @@
           .then(() => { toast(act.dataset.active === '1' ? 'Welcome back' : 'Marked as left. The stall is free again.'); horsesView(); })
           .catch((ex) => toast(ex.message));
       }
+    };
+    // A horse's picture (also from the app's horse page): square, small, then uploaded
+    root.onchange = async (e) => {
+      const inp = e.target.closest('[data-horse-photo]');
+      if (!inp || !inp.files[0]) return;
+      try {
+        const blob = await new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(inp.files[0]), im = new Image();
+          im.onload = () => { const side = Math.min(im.naturalWidth, im.naturalHeight), c = document.createElement('canvas'); c.width = c.height = Math.min(800, side);
+            c.getContext('2d').drawImage(im, (im.naturalWidth - side) / 2, (im.naturalHeight - side) / 2, side, side, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(resolve, 'image/jpeg', 0.86); };
+          im.onerror = () => reject(new Error('Couldn’t read that picture.'));
+          im.src = url;
+        });
+        const fd = new FormData(); fd.append('files', blob, 'horse.jpg');
+        const r = await fetch('/api/ranch/horses/' + inp.dataset.horsePhoto + '/photo', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).error) || 'Upload failed.');
+        toast('Picture saved'); horsesView(inp.dataset.horsePhoto);
+      } catch (ex) { toast(ex.message); }
     };
     root.onsubmit = async (e) => {
       e.preventDefault();

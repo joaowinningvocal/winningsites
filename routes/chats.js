@@ -614,6 +614,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
   }
 
   // ---------------------------------------------------------------- home screen
+  const photoOf = (h) => (h.photo ? `/api/ranch/horses/${h.id}/photo?v=${encodeURIComponent(h.photoAt || '')}` : null);
   r.get('/app/home', auth.requireUser, (req, res) => {
     const u = req.user;
     const unread = visibleChats(u).reduce((t, c) => t + chatOut(u, c).unread, 0);
@@ -623,7 +624,7 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
       const ups = db.updates.filter((x) => x.horseId === h.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const img = ups.find((x) => x.media.some((m) => m.type === 'image'));
       return {
-        id: h.id, name: h.name, stall: (stallById(stallOfHorse(h)) || {}).name || '',
+        id: h.id, name: h.name, stall: (stallById(stallOfHorse(h)) || {}).name || '', photo: photoOf(h),
         latest: ups[0] ? { caption: ups[0].caption, at: ups[0].createdAt, by: ups[0].authorName } : null,
         cover: img ? `/api/ranch/media/${img.media.find((m) => m.type === 'image').file}` : null,
         fresh: ups.filter((x) => x.createdAt > seenUpdates).length,
@@ -631,6 +632,9 @@ module.exports = function chats({ r, db, store, auth, newId, now, str, uploads, 
     });
     const toSign = (db.signRequests || []).filter((q) => q.userId === u.id && q.status === 'pending').length;
     const out = { user: auth.publicUser(u), unread, horses, toSign };
+    // The team's Home: every horse at the ranch, with its picture, to open its page (care notes and updates)
+    if (isTeam(u)) out.ranchHorses = db.horses.filter((h) => h.active !== false && !h.demo).sort((a, b) => (!!b.photo - !!a.photo) || a.name.localeCompare(b.name)) // the ones with a picture first
+      .map((h) => ({ id: h.id, name: h.name, stall: (stallById(stallOfHorse(h)) || {}).name || '', photo: photoOf(h) }));
     if (isStaff(u)) {
       const pos = u.position || 'office';
       const shift = (db.shifts || []).find((s) => !s.deletedAt && s.userId === u.id && !s.out);
